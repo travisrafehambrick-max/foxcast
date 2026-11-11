@@ -275,9 +275,13 @@ def forecast(
     _make_forecasts(config, day or _new_york_today())
 
 
-@app.command()
-def daily(config: ConfigOption = DEFAULT_CONFIG) -> None:
-    """What the scheduler runs: the snapshot, then the numbers-only forecasts for that day.
+@app.command("run")
+def run_now(config: ConfigOption = DEFAULT_CONFIG) -> None:
+    """Pull today's data and freeze today's forecasts, on demand, during market hours.
+
+    Every run covers the whole watchlist (the random draw and every followed ticker), never
+    a chosen few, so the scored sample is not shaped by when someone chose to look. Each
+    run is logged in snapshots/health.jsonl, which is how the cadence is reported.
 
     Forecasts are made even when the snapshot raised the alarm, for every ticker that was
     captured; the command still exits with an error so the alarm is not missed.
@@ -300,32 +304,6 @@ def repair_ledger(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
     console.print(f"[green]Repaired.[/green] The original is kept at {backup}.")
-
-
-@app.command()
-def schedule(
-    start_time: Annotated[
-        str, typer.Option("--time", help="Start time in New York, HH:MM (market hours).")
-    ] = "10:30",
-    apply: Annotated[
-        bool, typer.Option("--apply", help="Register it (changes this machine).")
-    ] = False,
-) -> None:
-    """Show, or with --apply register, the weekday job in the system's own scheduler."""
-    from foxcast.schedule import apply as apply_schedule
-    from foxcast.schedule import describe
-
-    project = Path(__file__).resolve().parents[3]
-    try:
-        plan = describe(project, start_time)
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1) from exc
-    console.print(f"Would run: {plan}")
-    if not apply:
-        console.print("Not registered. Re-run with --apply to register it.")
-        return
-    console.print(f"[green]{apply_schedule(project, start_time)}[/green]")
 
 
 def main() -> None:

@@ -1,10 +1,8 @@
 """Regression tests for the Stage 0.5 code review findings (2026-11-11)."""
 
 import multiprocessing
-import subprocess
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -164,40 +162,6 @@ def test_degenerate_option_fit_is_a_reason(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 # 11: the crontab is never replaced when it cannot be read.
-@pytest.mark.unit
-def test_cron_apply_stops_when_the_crontab_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    from foxcast import schedule
-
-    calls: list[list[str]] = []
-
-    def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        calls.append(args)
-        return subprocess.CompletedProcess(args, 1, stdout="", stderr="permission denied")
-
-    monkeypatch.setattr(schedule.subprocess, "run", fake_run)
-    with pytest.raises(RuntimeError, match="could not read"):
-        schedule.apply(Path("/p/foxcast"), "10:30", platform="linux")
-    assert calls == [["crontab", "-l"]]
-
-
-@pytest.mark.unit
-def test_cron_apply_replaces_its_own_line_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    from foxcast import schedule
-
-    written: list[str] = []
-    existing = "0 1 * * * backup.sh\n30 9 * * 1-5 old foxcast job # foxcast daily\n"
-
-    def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if args == ["crontab", "-l"]:
-            return subprocess.CompletedProcess(args, 0, stdout=existing, stderr="")
-        written.append(kwargs["input"])
-        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-
-    monkeypatch.setattr(schedule.subprocess, "run", fake_run)
-    schedule.apply(Path("/p/foxcast"), "10:30", platform="linux")
-    lines = written[0].splitlines()
-    assert lines[0] == "0 1 * * * backup.sh"
-    assert sum(line.endswith("# foxcast daily") for line in lines) == 1
 
 
 # 12: ticker symbols that could escape a folder are rejected.

@@ -1,4 +1,4 @@
-"""Stage 0.5: Yahoo snapshot, watchlist, scheduler command and daily forecasts."""
+"""Stage 0.5: Yahoo snapshot, watchlist and on-demand forecasts."""
 
 import json
 import math
@@ -14,7 +14,6 @@ from scipy.stats import norm
 
 from foxcast.daily import horizon_date, run_daily_forecasts, seed_for
 from foxcast.ledger.chain import Ledger
-from foxcast.schedule import TASK_NAME, cron_line
 from foxcast.snapshot import MarketClosedError, market_is_open, run_snapshot
 from foxcast.sources.base import Unavailable
 from foxcast.sources.yahoo import (
@@ -190,7 +189,7 @@ def test_snapshot_raises_the_alarm_above_one_in_ten(tmp_path: Path) -> None:
     assert report.alarm
 
 
-# --- watchlist and scheduler -------------------------------------------------------------
+# --- watchlist -------------------------------------------------------------------------
 
 
 @pytest.mark.unit
@@ -213,23 +212,6 @@ def test_watchlist_draw_is_seeded_and_recorded(tmp_path: Path) -> None:
         draw_watchlist(
             universe[:3], size=10, seed=1, drawn_on=date(2026, 11, 11), universe_source="t"
         )
-
-
-@pytest.mark.unit
-def test_scheduler_commands_and_time_validation() -> None:
-    from datetime import time
-
-    from foxcast.schedule import parse_time, windows_schtasks
-
-    windows = windows_schtasks(Path("C:/p/foxcast"), time(10, 30))
-    assert windows[:3] == ["schtasks", "/Create", "/TN"]
-    assert TASK_NAME in windows
-    assert "MON,TUE,WED,THU,FRI" in windows
-    assert cron_line(Path("/p/foxcast"), time(11, 5)).startswith("5 11 * * 1-5 ")
-    with pytest.raises(ValueError):
-        parse_time("25:00")
-    with pytest.raises(ValueError):
-        parse_time("10.30")
 
 
 # --- daily forecasts ---------------------------------------------------------------------

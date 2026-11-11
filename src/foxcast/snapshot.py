@@ -1,4 +1,4 @@
-"""The daily snapshot (brief F3, Stage 0.5, change BD).
+"""The snapshot, taken on demand during market hours (brief F3, Stage 0.5, change BD).
 
 Captures what has no free history (option chains, analyst views) plus prices, for every
 ticker on the watchlist, during market hours only. Each day's tables are written as

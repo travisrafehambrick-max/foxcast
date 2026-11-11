@@ -63,7 +63,7 @@ Each stage must be useful on its own and must pass before the next one starts. N
 - Row 1c cannot reach 98% on a given model: that model is labelled unfit for dossiers.
 - Row 2c: the event-aware forecast does not beat the plain volatility model. Event handling is cut back to scheduled earnings only.
 - Row 3d reaches its required count and the model's probabilities are no better than the simple baseline: the research forecast stays experimental and out of the headline, and the research layer is kept for the dossier only.
-- Yahoo fails on more than 1 in 10 daily snapshots for a month: the free-only data plan comes back to you for a decision.
+- Yahoo fails on more than 1 in 10 fetches across the last 20 runs: the free-only data plan comes back to you for a decision.
 
 ### Two honest limits
 
@@ -77,3 +77,4 @@ Each stage must be useful on its own and must pass before the next one starts. N
 
 - **2026-11-11** First commit. Rows and rules as approved in the brief on 2026-11-11, including amendments A–N and changes O–V, AF–AR and AS–BH.
 - **2026-11-11** Definitions, no pass line changed. (1) Every live record carries `sample`: `random` for the scored watchlist, `followed` for tickers a person chose to watch. Followed tickers are excluded from every row. (2) The scored watchlist is a seeded random draw from a universe declared before the draw and recorded with the watchlist (definition, size and hash); the first universe is S&P 500 members in the GICS sectors Communication Services, Energy, Financials and Information Technology, plus the Aerospace & Defense sub-industry. Live results therefore describe those sectors only.
+- **2026-11-11** Data is pulled on demand, not by a daily scheduled job (owner's decision; to be revisited once foxcast is more complete). No pass line changed. (1) Every run covers the whole watchlist, never a chosen few, so the scored sample is not shaped by when someone chose to look. (2) The number of runs and their dates are reported beside every live row. (3) The Yahoo change-course trigger is counted over the last 20 runs instead of a month of daily snapshots. (4) The option-implied bias correction (forecast 5) is fitted on DoltHub's chain history, since our own snapshots now have gaps.

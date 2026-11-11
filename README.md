@@ -6,7 +6,7 @@ foxcast builds a sourced research dossier for a US stock, in which every fact ca
 
 ## Status
 
-Early development. What works today is the live record: a daily snapshot of prices, option chains and analyst views, and numbers-only forecasts frozen in a tamper-evident ledger. There are no research dossiers yet, and none of the scorecard's rows has been measured, so no forecast here has a validated track record.
+Early development. What works today is the live record: an on-demand snapshot of prices, option chains and analyst views, and numbers-only forecasts frozen in a tamper-evident ledger. There are no research dossiers yet, and none of the scorecard's rows has been measured, so no forecast here has a validated track record.
 
 The scorecard in [`SCORECARD.md`](SCORECARD.md) was committed before any code. It states what the project must prove and how, and every result will be reported against it as pass, fail or not yet measurable.
 
@@ -22,8 +22,8 @@ uv run foxcast init                 # writes a starter config; keys go in enviro
 uv run foxcast doctor               # checks Python, config, keys, disk space and sources
 uv run foxcast watchlist --universe constituents.csv --seed 1 --sector "Energy"
 uv run foxcast follow ABCD          # optional: watch a hand-picked ticker (not scored)
-uv run foxcast snapshot             # during market hours
-uv run foxcast forecast             # freezes the numbers-only forecasts in the ledger
+uv run foxcast run                  # on demand, during market hours: pull today's data and
+                                    # freeze forecasts for the whole watchlist
 uv run foxcast verify-ledger --ledger ~/.foxcast/data/ledger.jsonl
 ```
 

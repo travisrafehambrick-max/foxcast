@@ -59,3 +59,11 @@ def test_verify_ledger_reports_ok_and_broken(tmp_path: Path) -> None:
     result = runner.invoke(cli_app.app, ["verify-ledger", "--ledger", str(ledger_path)])
     assert result.exit_code == 1
     assert "changed" in result.output
+
+
+@pytest.mark.unit
+def test_on_demand_run_exists_and_there_is_no_scheduler() -> None:
+    commands = {command.name for command in cli_app.app.registered_commands}
+    assert "run" in commands
+    assert "schedule" not in commands
+    assert "daily" not in commands

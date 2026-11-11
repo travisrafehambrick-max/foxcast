@@ -1,4 +1,4 @@
-"""The daily numbers-only forecasts (Stage 0.5): forecasts 1 and 2 at 5 and 21 trading
+"""On-demand numbers-only forecasts (Stage 0.5): forecasts 1 and 2 at 5 and 21 trading
 days, and forecast 4 at 21 trading days, each frozen in the ledger with its resolution rule.
 
 Request IDs are ``<day>:<ticker>:<forecast>:<horizon>``, so a rerun on the same day returns

@@ -1,7 +1,7 @@
 """An exclusive, cross-process lock on a sidecar file (no extra dependency).
 
 Held for the whole read-verify-append of a ledger write, so two processes (say, a manual
-`foxcast forecast` and the scheduled `foxcast daily`) cannot both append sequence N.
+`foxcast forecast` and a `foxcast run` started at the same time) cannot both append sequence N.
 """
 
 import os
