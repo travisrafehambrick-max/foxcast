@@ -1,0 +1,66 @@
+[project]
+name = "foxcast"
+version = "0.1.0"
+description = "Sourced stock research dossiers and calibrated, scored return forecasts. Research, not investment advice."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "LICENSES/*"]
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "httpx>=0.28.1",
+    "pandas>=2.2",
+    "pandera>=0.30",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.10",
+    "rich>=14.0",
+    "tenacity>=9.0",
+    "typer>=0.20",
+]
+
+[project.scripts]
+foxcast = "foxcast.cli.app:main"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.150",
+    "mypy>=2.0",
+    "pytest>=9.0",
+    "pytest-cov>=7.0",
+    "pytest-recording>=0.13",
+    "ruff>=0.15",
+    "vcrpy>=8.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+# Seven-day waiting period on new releases (stack record, supply-chain rules).
+# Move this date forward deliberately, never to "today".
+exclude-newer = "2026-11-04T00:00:00Z"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers --cov=foxcast --cov-report=term-missing --cov-fail-under=80"
+markers = [
+    "unit: fast tests with no network",
+    "integration: tests that replay recorded network fixtures",
+]
+
+[tool.coverage.run]
+branch = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"

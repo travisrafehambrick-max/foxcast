@@ -1,0 +1,162 @@
+# Machine-readable copy of SCORECARD.md. A test keeps the two in agreement.
+# status is one of: pass, fail, not yet measurable (honesty rule 2).
+
+[[row]]
+id = "1a"
+claim = "No fact without a source"
+measure = "Code check at build time"
+pass_line = "0 uncited factual claims; the run fails otherwise"
+stage = "Stage 1"
+status = "not yet measurable"
+
+[[row]]
+id = "1b"
+claim = "The model never writes a number"
+measure = "Code check: every figure is inserted from a fetched fact ID"
+pass_line = "100%"
+stage = "Stage 1"
+status = "not yet measurable"
+
+[[row]]
+id = "1c"
+claim = "Sources say what we say they say"
+measure = "Citation checker finds the figure or quote in the content-hashed copy of each source saved at fetch time, on a fixed 20-ticker set"
+pass_line = "≥ 98% verified; the rest withheld, not shown. Live re-fetch rate reported separately"
+stage = "Stage 1"
+status = "not yet measurable"
+
+[[row]]
+id = "1d"
+claim = "Nothing is silently missing"
+measure = "Every section is either filled or marked \"unavailable: reason\""
+pass_line = "0 silent gaps"
+stage = "Stage 1"
+status = "not yet measurable"
+
+[[row]]
+id = "1e"
+claim = "It holds up to a person"
+measure = "You spot-check about 100 claims drawn by a seeded sampler (or a sequential sample with a stopping rule fixed in advance), on 5 tickers you know well. Each check asks whether the claim uses the *right* fact: right metric, period and unit, which code writes from the fact's own record"
+pass_line = "The upper 95% bound on the error rate is below 5%; and it told you at least one true thing you did not know (change AV)"
+stage = "Stage 1"
+status = "not yet measurable"
+
+[[row]]
+id = "1f"
+claim = "The bear case is real"
+measure = "Red-team section"
+pass_line = "≥ 3 falsifiable claims, each with a source and a \"what would prove this wrong\""
+stage = "Stage 1"
+status = "not yet measurable"
+
+[[row]]
+id = "2a"
+claim = "The simulator is correct"
+measure = "Tests against closed-form results, including `arch`'s exact multi-step variance for the volatility-model path (change BH)"
+pass_line = "All pass"
+stage = "Stage 2"
+status = "not yet measurable"
+
+[[row]]
+id = "2b"
+claim = "Intervals mean what they say"
+measure = "Walk-forward test on non-overlapping 21-day windows, **every** S&P 500 member as of each date, delisted stocks included and resolved to their last traded price or takeover consideration (change AU). Tuned on 2014–2022 only; the final test is run once on 2023–2026, together with rows 2c, 2e and 2f in a single recorded run (change AS). The effective sample size is reported, and the 99% result is labelled \"low power\" (change BB). Coverage is reported **before** and after conformal recalibration, and the pass line applies to the figure before (change AX). Coverage is also reported for calm, normal and stressed markets, with each market state defined only from what was known on the forecast day. Interval width and calibration charts are reported beside coverage."
+pass_line = "On the final test: coverage of the 50%, 80%, 95% and 99% intervals is statistically consistent with those figures (intervals from resampling whole dates); the 80% and 50% intervals land inside 75–85% and 45–55%"
+stage = "Stage 2"
+status = "not yet measurable"
+
+[[row]]
+id = "2c"
+claim = "It beats simpler forecasts"
+measure = "CRPS against two baselines on the same test: constant volatility (forecast 1) and the plain volatility model with no event handling (forecast 2). Scored by volatility-scaled CRPS skill, so volatile stocks do not dominate; raw CRPS and a tail-weighted score are reported beside it (change BA). Every compared forecast gets the same recalibration (change AX)"
+pass_line = "Better than both on volatility-scaled skill, with a bootstrap 95% interval that excludes zero. If it does not beat forecast 2, event handling is cut back to scheduled earnings only"
+stage = "Stage 2"
+status = "not yet measurable"
+
+[[row]]
+id = "2d"
+claim = "No peeking"
+measure = "Lookahead tests: no input dated after the forecast time, plus one test for each fitted piece listed in honesty rule 12 (change AT)"
+pass_line = "All pass"
+stage = "Stage 2"
+status = "not yet measurable"
+
+[[row]]
+id = "2e"
+claim = "Where the history-based forecast stands against the options market"
+measure = "Volatility-scaled CRPS skill (raw CRPS beside it, change BA) of the event-aware forecast against three option-based ones, 21-day horizon: raw, corrected, and the simple implied-volatility benchmark. Tuned on 2019–2022 chains; the final figure comes from the single 2023–2026 run (change AS)"
+pass_line = "Published as measured, with the smallest detectable difference. Expected on large, actively traded stocks: a loss to the corrected one. A win is re-checked by the red team before it is believed"
+stage = "Stage 2"
+status = "not yet measurable"
+
+[[row]]
+id = "2f"
+claim = "Blending helps"
+measure = "Volatility-scaled CRPS skill of the blend (forecast 6) against each of its two ingredients, all three recalibrated the same way; tuned on data up to 2022, final figure from the single 2023–2026 run (changes AS, AX, BA)"
+pass_line = "The blend is no worse than the better ingredient. If it is worse, the better ingredient becomes the headline"
+stage = "Stage 2"
+status = "not yet measurable"
+
+[[row]]
+id = "3a"
+claim = "The record cannot be edited or backdated"
+measure = "Hash-chain check on the ledger; each day's digest is pushed to the public repo with an independent timestamp. Every record states its resolution rule, written before the forecast: what it resolves to on delisting, takeover or a trading halt: the last traded price or the takeover consideration, and \"void\" only when no price exists, with the void rate reported beside every score (change AU). Ledger records, not just digests, are backed up and published at settlement (change BH)"
+pass_line = "Chain verifies on every run; an outsider can verify the timestamps and re-score the published records with a standard tool"
+stage = "Core ledger in Stage 0.5; public digest and timestamps in Stage 3 (change AZ)"
+status = "not yet measurable"
+
+[[row]]
+id = "3b"
+claim = "Whether research changes forecast accuracy"
+measure = "Each live forecast is made twice with the same random seed, event-aware and event-aware plus research, and both are scored"
+pass_line = "A verdict with a confidence interval and, beside it, the smallest effect the test could have detected. A null result is worded \"no detectable effect\". Reported after ≥ 500 settled forecasts over ≥ 6 non-overlapping windows; \"not enough data\" before that. Expected to stay inconclusive for years; row 3d is the main test of the research layer"
+stage = "~6 months live, then ongoing"
+status = "not yet measurable"
+
+[[row]]
+id = "3c"
+claim = "Where the forecasts stand against the options market, live"
+measure = "Volatility-scaled CRPS skill (raw CRPS beside it, change BA) of the headline and research forecasts against the raw, corrected and simple option-based ones, same forecasts, 21-day horizon only (the 5-day horizon is scored against forecasts 1–3). Also reported: volatility-scaled skill, interval width, a tail-weighted score, calibration charts, and results split by calm, normal and stressed markets defined from what was known on the forecast day"
+pass_line = "Published as measured, with the smallest detectable difference. A win is re-checked by the red team before it is believed"
+stage = "~6 months live"
+status = "not yet measurable"
+
+[[row]]
+id = "3d"
+claim = "The model's event probabilities add information (main test of the research layer)"
+measure = "On every forecast the model gives a probability for every event class and a direction call for scheduled events. Brier score on resolved calls, per class, against the best simple statistical or market-implied probability. Each event class has a written resolution rule; \"void\" only when the outcome cannot be determined, with the void rate reported (change AU). The event-class list and the calm, normal and stressed thresholds are fixed before the power simulation (change BG)"
+pass_line = "A verdict per class with a confidence interval, once the number of resolved calls reaches a figure fixed by a power simulation before Stage 3; \"not enough data\" before that"
+stage = "Weeks to months after Stage 3 starts"
+status = "not yet measurable"
+
+[[row]]
+id = "4a"
+claim = "It installs"
+measure = "Fresh machines in CI: Windows, macOS, Linux"
+pass_line = "Clone to first dossier in under 10 minutes"
+stage = "Stage 4"
+status = "not yet measurable"
+
+[[row]]
+id = "4b"
+claim = "Any model works"
+measure = "Conformance suite on three backends: a cloud API key, a subscription agent through MCP, a local model"
+pass_line = "All three pass, or the failing one is labelled \"experimental\" in the docs. The subscription agent passes by a live local run plus a replayed tool-call transcript in CI"
+stage = "Stage 4"
+status = "not yet measurable"
+
+[[row]]
+id = "4c"
+claim = "It costs what we say"
+measure = "Token and time cost printed on every run. For subscription agents: tool calls, result sizes and time, plus token cost where the agent exposes it"
+pass_line = "Measured and published; budget set after the first 20 runs"
+stage = "Stage 1 on"
+status = "not yet measurable"
+
+[[row]]
+id = "4d"
+claim = "A stranger succeeds"
+measure = "Three people outside the project install and run it unaided"
+pass_line = "3 of 3"
+stage = "Before public launch"
+status = "not yet measurable"
