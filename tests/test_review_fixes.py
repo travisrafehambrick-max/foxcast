@@ -7,8 +7,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from foxcast.conformance import ReferenceBackend, Task, load_tasks
 from foxcast.config import load_settings, write_default_config
+from foxcast.conformance import ReferenceBackend, Task, load_tasks
 from foxcast.doctor import Status, check_sec_reachable, run_checks
 from foxcast.sources.base import Fetched, NoData, Unavailable, redact_url, run_provider
 from foxcast.sources.sec import ConceptQuery, SecConceptProvider, first_reported, latest_reported
@@ -252,7 +252,10 @@ def test_returning_ticker_keeps_its_share_class() -> None:
 
 @pytest.mark.unit
 def test_duplicate_ticker_in_sec_file_is_an_error() -> None:
-    payload = b'{"0": {"cik_str": 1, "ticker": "ABC", "title": "A"}, "1": {"cik_str": 2, "ticker": "abc", "title": "B"}}'
+    payload = (
+        b'{"0": {"cik_str": 1, "ticker": "ABC", "title": "A"},'
+        b' "1": {"cik_str": 2, "ticker": "abc", "title": "B"}}'
+    )
     with pytest.raises(ValueError, match="ABC"):
         parse_sec_ticker_file(payload)
 
