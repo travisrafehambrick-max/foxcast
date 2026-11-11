@@ -43,3 +43,19 @@ def test_doctor_exit_code_follows_failures(tmp_path: Path, monkeypatch: pytest.M
     result = runner.invoke(cli_app.app, ["doctor", "--config", str(tmp_path / "c.toml")])
     assert result.exit_code == 1
     assert "blocked" in result.output
+
+
+@pytest.mark.unit
+def test_verify_ledger_reports_ok_and_broken(tmp_path: Path) -> None:
+    from foxcast.ledger.chain import Ledger
+
+    ledger_path = tmp_path / "ledger.jsonl"
+    Ledger(ledger_path).append(kind="forecast", request_id="r1", payload={"x": 1})
+    result = runner.invoke(cli_app.app, ["verify-ledger", "--ledger", str(ledger_path)])
+    assert result.exit_code == 0, result.output
+    assert "1 record" in result.output
+
+    ledger_path.write_text(ledger_path.read_text().replace('"x":1', '"x":2'))
+    result = runner.invoke(cli_app.app, ["verify-ledger", "--ledger", str(ledger_path)])
+    assert result.exit_code == 1
+    assert "changed" in result.output
