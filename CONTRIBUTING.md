@@ -12,7 +12,8 @@ Thank you for helping. foxcast's value rests on honest measurement, so a few rul
 
 ## Workflow
 
-- Set up with `uv sync`, and run `uv run pytest`, `uv run ruff check .` and `uv run mypy src`.
+- Set up with `uv sync` and `uv run pre-commit install`; the hooks run lint, formatting, strict type checks and file checks on every commit. Run the tests with `uv run pytest`.
+- Releases are published to PyPI from `.github/workflows/release.yml` by trusted publishing, only when a maintainer publishes a GitHub release and a reviewer approves the `pypi` environment. No PyPI token is stored anywhere.
 - Write the test first. Coverage must stay at or above 80%.
 - Commit messages follow Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`).
 - Copied code needs an entry in [`THIRD_PARTY.md`](THIRD_PARTY.md) and its licence in `LICENSES/`.
