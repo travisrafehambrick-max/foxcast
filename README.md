@@ -6,7 +6,28 @@ foxcast builds a sourced research dossier for a US stock, in which every fact ca
 
 ## Status
 
-Early development (Stage 0). It does not run yet. The scorecard in [`SCORECARD.md`](SCORECARD.md) was committed before any code, and it states what the project must prove and how.
+Early development. What works today is the live record: a daily snapshot of prices, option chains and analyst views, and numbers-only forecasts frozen in a tamper-evident ledger. There are no research dossiers yet, and none of the scorecard's rows has been measured, so no forecast here has a validated track record.
+
+The scorecard in [`SCORECARD.md`](SCORECARD.md) was committed before any code. It states what the project must prove and how, and every result will be reported against it as pass, fail or not yet measurable.
+
+## Quick start
+
+Requires [uv](https://docs.astral.sh/uv/) and Python 3.12 or 3.13.
+
+```
+git clone https://github.com/travisrafehambrick-max/foxcast
+cd foxcast
+uv sync
+uv run foxcast init                 # writes a starter config; keys go in environment variables
+uv run foxcast doctor               # checks Python, config, keys, disk space and sources
+uv run foxcast watchlist --universe constituents.csv --seed 1 --sector "Energy"
+uv run foxcast follow ABCD          # optional: watch a hand-picked ticker (not scored)
+uv run foxcast snapshot             # during market hours
+uv run foxcast forecast             # freezes the numbers-only forecasts in the ledger
+uv run foxcast verify-ledger --ledger ~/.foxcast/data/ledger.jsonl
+```
+
+Set `FOXCAST_SEC_CONTACT="Your Name you@example.com"` before using SEC data; SEC asks every client to identify itself.
 
 ## Data
 
