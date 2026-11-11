@@ -86,7 +86,14 @@ def completed_session_returns(prices: pd.DataFrame, day: date) -> np.ndarray:
     return np.diff(np.log(completed["adj_close"].to_numpy(dtype=float)))
 
 
-def _freeze(ledger: Ledger, day: str, ticker: str, forecast: QuantileForecast, version: str) -> str:
+def _freeze(
+    ledger: Ledger,
+    day: str,
+    ticker: str,
+    forecast: QuantileForecast,
+    version: str,
+    sample: str,
+) -> str:
     request_id = f"{day}:{ticker}:{forecast.forecast_id}:{forecast.horizon_days}"
     payload: dict[str, Any] = {
         "ticker": ticker,
@@ -95,6 +102,8 @@ def _freeze(ledger: Ledger, day: str, ticker: str, forecast: QuantileForecast, v
         "resolution_rule": dict(RESOLUTION_RULE),
         "code_version": version,
         "model": "none (numbers only)",
+        # "followed" tickers were hand-picked and are excluded from every scorecard row.
+        "sample": sample,
     }
     ledger.append(kind="forecast", request_id=request_id, payload=payload)
     return request_id
@@ -107,9 +116,10 @@ def _try_freeze(
     forecast: QuantileForecast,
     version: str,
     skipped: list[str],
+    sample: str,
 ) -> str | None:
     try:
-        return _freeze(ledger, day, ticker, forecast, version)
+        return _freeze(ledger, day, ticker, forecast, version, sample)
     except LedgerConflictError as exc:
         skipped.append(f"{ticker} {forecast.forecast_id}: {exc}; kept the first record")
         return None
@@ -122,6 +132,7 @@ def _history_forecasts(
     ticker: str,
     version: str,
     skipped: list[str],
+    sample: str,
 ) -> list[str]:
     frozen: list[str] = []
     returns = completed_session_returns(prices, date.fromisoformat(day))
@@ -134,7 +145,7 @@ def _history_forecasts(
             except ValueError as exc:
                 skipped.append(f"{ticker} {forecast_id} {horizon}d: {exc}")
                 continue
-            request_id = _try_freeze(ledger, day, ticker, fc, version, skipped)
+            request_id = _try_freeze(ledger, day, ticker, fc, version, skipped, sample)
             if request_id:
                 frozen.append(request_id)
     return frozen
@@ -148,6 +159,7 @@ def _option_forecast(
     ticker: str,
     version: str,
     skipped: list[str],
+    sample: str,
 ) -> list[str]:
     if not chain_path.exists():
         skipped.append(f"{ticker}: no option chain snapshot for {day}")
@@ -164,12 +176,18 @@ def _option_forecast(
     if isinstance(option, str):
         skipped.append(f"{ticker} option_raw: {option}")
         return []
-    request_id = _try_freeze(ledger, day, ticker, option, version, skipped)
+    request_id = _try_freeze(ledger, day, ticker, option, version, skipped, sample)
     return [request_id] if request_id else []
 
 
 def run_daily_forecasts(
-    tickers: Sequence[str], data_dir: Path, ledger: Ledger, *, day: str, project: Path
+    tickers: Sequence[str],
+    data_dir: Path,
+    ledger: Ledger,
+    *,
+    day: str,
+    project: Path,
+    followed: Sequence[str] = (),
 ) -> DailyResult:
     date.fromisoformat(day)  # reject anything that is not a plain date
     folder = snapshot_dir(data_dir, day)
@@ -183,7 +201,10 @@ def run_daily_forecasts(
             skipped.append(f"{ticker}: no price snapshot for {day}")
             continue
         prices = pd.read_parquet(price_path)
-        frozen += _history_forecasts(ledger, prices, day, ticker, version, skipped)
+        sample = "followed" if ticker in followed else "random"
+        frozen += _history_forecasts(ledger, prices, day, ticker, version, skipped, sample)
         chain_path = folder / f"{ticker}_chains.parquet"
-        frozen += _option_forecast(ledger, prices, chain_path, day, ticker, version, skipped)
+        frozen += _option_forecast(
+            ledger, prices, chain_path, day, ticker, version, skipped, sample
+        )
     return DailyResult(tuple(frozen), tuple(skipped))

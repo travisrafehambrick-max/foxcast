@@ -1,5 +1,6 @@
 """The foxcast command line."""
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
@@ -89,30 +90,102 @@ def _paths(settings: Settings) -> tuple[Path, Path, Path]:
 
 @app.command("watchlist")
 def watchlist_draw(
-    universe: Annotated[Path, typer.Option("--universe", help="File with one ticker per line.")],
+    universe: Annotated[
+        Path,
+        typer.Option(
+            "--universe",
+            help="S&P 500 constituents CSV (with GICS columns), or one ticker per line.",
+        ),
+    ],
     seed: Annotated[int, typer.Option("--seed", help="Recorded seed for the random draw.")],
     size: Annotated[int | None, typer.Option("--size", help="Defaults to watchlist_size.")] = None,
+    sector: Annotated[
+        list[str] | None, typer.Option("--sector", help="GICS sector to include (repeatable).")
+    ] = None,
+    sub_industry: Annotated[
+        list[str] | None,
+        typer.Option("--sub-industry", help="GICS sub-industry to include (repeatable)."),
+    ] = None,
     config: ConfigOption = DEFAULT_CONFIG,
 ) -> None:
-    """Draw the watchlist at random from a universe file, with a recorded seed."""
+    """Draw the scored watchlist at random from a declared universe, with a recorded seed.
+
+    Followed tickers on an existing watchlist are kept.
+    """
     from datetime import date
 
-    from foxcast.watchlist import draw_watchlist, save_watchlist
+    from foxcast.universe import UniverseSpec, select_universe
+    from foxcast.watchlist import draw_watchlist, load_watchlist, save_watchlist
 
     settings = _settings(config)
     _, watchlist_path, _ = _paths(settings)
-    members = universe.read_text(encoding="utf-8").splitlines()
+    text = universe.read_text(encoding="utf-8")
+    if sector or sub_industry:
+        spec = UniverseSpec(sectors=tuple(sector or ()), sub_industries=tuple(sub_industry or ()))
+        try:
+            members = select_universe(text, spec)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=1) from exc
+        definition = spec.describe()
+    else:
+        members = text.splitlines()
+        definition = f"every ticker in {universe.name}"
     drawn = draw_watchlist(
         members,
         size=size or settings.watchlist_size,
         seed=seed,
         drawn_on=date.today(),
         universe_source=universe.name,
+        universe_definition=definition,
     )
+    if watchlist_path.exists():
+        kept = tuple(t for t in load_watchlist(watchlist_path).followed if t not in drawn.tickers)
+        drawn = replace(drawn, followed=kept)
     save_watchlist(drawn, watchlist_path)
+    console.print(f"Universe: {definition} ({drawn.universe_size} tickers).")
     console.print(
         f"Drew {drawn.size} of {drawn.universe_size} (seed {seed}): {', '.join(drawn.tickers)}"
     )
+    if drawn.followed:
+        console.print(f"Still followed (not scored): {', '.join(drawn.followed)}")
+
+
+def _edit_followed(config: Path, ticker: str, *, add: bool) -> None:
+    from foxcast.watchlist import follow as add_followed
+    from foxcast.watchlist import load_watchlist, save_watchlist, unfollow
+
+    _, watchlist_path, _ = _paths(_settings(config))
+    if not watchlist_path.exists():
+        console.print("[red]No watchlist yet; run `foxcast watchlist` first.[/red]")
+        raise typer.Exit(code=1)
+    current = load_watchlist(watchlist_path)
+    try:
+        updated = add_followed(current, ticker) if add else unfollow(current, ticker)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    save_watchlist(updated, watchlist_path)
+    shown = ", ".join(updated.followed) or "none"
+    console.print(f"Followed (hand-picked, excluded from the scorecard): {shown}")
+
+
+@app.command("follow")
+def follow_ticker(
+    ticker: Annotated[str, typer.Argument(help="Ticker to follow, e.g. FRMI.")],
+    config: ConfigOption = DEFAULT_CONFIG,
+) -> None:
+    """Snapshot and forecast a hand-picked ticker, tagged so the scorecard leaves it out."""
+    _edit_followed(config, ticker, add=True)
+
+
+@app.command("unfollow")
+def unfollow_ticker(
+    ticker: Annotated[str, typer.Argument(help="Ticker to stop following.")],
+    config: ConfigOption = DEFAULT_CONFIG,
+) -> None:
+    """Stop snapshotting and forecasting a followed ticker (its frozen records stay)."""
+    _edit_followed(config, ticker, add=False)
 
 
 def _new_york_today() -> str:
@@ -130,7 +203,7 @@ def _take_snapshot(config: Path, force: bool) -> SnapshotReport:
     if not watchlist_path.exists():
         console.print("[red]No watchlist yet; run `foxcast watchlist` first.[/red]")
         raise typer.Exit(code=1)
-    tickers = load_watchlist(watchlist_path).tickers
+    tickers = load_watchlist(watchlist_path).all_tickers
     try:
         report = run_snapshot(tickers, data, require_market_open=not force)
     except MarketClosedError as exc:
@@ -171,9 +244,14 @@ def _make_forecasts(config: Path, day: str) -> None:
         console.print(f"[red]--day must be YYYY-MM-DD, got {day!r}[/red]")
         raise typer.Exit(code=1) from exc
     data, watchlist_path, ledger_path = _paths(_settings(config))
-    tickers = load_watchlist(watchlist_path).tickers
+    watchlist = load_watchlist(watchlist_path)
     result = run_daily_forecasts(
-        tickers, data, Ledger(ledger_path), day=day, project=Path(__file__).resolve().parents[3]
+        watchlist.all_tickers,
+        data,
+        Ledger(ledger_path),
+        day=day,
+        project=Path(__file__).resolve().parents[3],
+        followed=watchlist.followed,
     )
     console.print(f"{day}: frozen {len(result.frozen)}, skipped {len(result.skipped)}.")
     for reason in result.skipped:
