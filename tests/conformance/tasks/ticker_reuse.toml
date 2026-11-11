@@ -1,0 +1,22 @@
+id = "ticker-reuse"
+description = "A reused ticker resolves to the company that held it on the date asked."
+kind = "ticker_lookup"
+
+[[input.snapshots]]
+as_of = "2026-01-05"
+tickers = { ABC = 111 }
+
+[[input.snapshots]]
+as_of = "2026-03-02"
+tickers = {}
+
+[[input.snapshots]]
+as_of = "2026-06-01"
+tickers = { ABC = 222 }
+
+[input]
+ticker = "ABC"
+on = "2026-07-01"
+
+[expect]
+cik = 222

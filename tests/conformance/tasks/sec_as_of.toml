@@ -1,0 +1,15 @@
+id = "sec-as-of-before-restatement"
+description = "Before the restatement was filed, only the original value is public."
+kind = "sec_concept"
+fixture = "sec_companyconcept_revenues.json"
+
+[input]
+cik = 1234567
+tag = "Revenues"
+mode = "latest_reported"
+period_end = "2023-12-31"
+as_of = "2024-03-01"
+
+[expect]
+value = 1000000.0
+accession = "0001234567-24-000010"

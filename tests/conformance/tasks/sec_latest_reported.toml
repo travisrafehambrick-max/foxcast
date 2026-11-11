@@ -1,0 +1,14 @@
+id = "sec-latest-reported"
+description = "The value of a restated period after the restatement."
+kind = "sec_concept"
+fixture = "sec_companyconcept_revenues.json"
+
+[input]
+cik = 1234567
+tag = "Revenues"
+mode = "latest_reported"
+period_end = "2023-12-31"
+
+[expect]
+value = 950000.0
+accession = "0001234567-24-000031"

@@ -1,0 +1,14 @@
+id = "sec-first-reported"
+description = "The value of a restated period as first reported, from the SEC fixture."
+kind = "sec_concept"
+fixture = "sec_companyconcept_revenues.json"
+
+[input]
+cik = 1234567
+tag = "Revenues"
+mode = "first_reported"
+period_end = "2023-12-31"
+
+[expect]
+value = 1000000.0
+accession = "0001234567-24-000010"

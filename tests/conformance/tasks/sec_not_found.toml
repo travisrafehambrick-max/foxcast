@@ -1,0 +1,13 @@
+id = "sec-not-found-is-no-data"
+description = "A concept the company never reported is 'no data', not 'unavailable'."
+kind = "sec_concept"
+fixture = "__404__"
+
+[input]
+cik = 1234567
+tag = "NotARealConcept"
+mode = "latest_reported"
+period_end = "2023-12-31"
+
+[expect]
+outcome = "no_data"

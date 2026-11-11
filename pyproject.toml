@@ -47,6 +47,7 @@ addopts = "--strict-markers --basetemp=.pytest_tmp --cov=foxcast --cov-report=te
 markers = [
     "unit: fast tests with no network",
     "integration: tests that replay recorded network fixtures",
+    "conformance: the fixed task set every model backend must pass (row 4b)",
 ]
 
 [tool.coverage.run]
