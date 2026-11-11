@@ -42,7 +42,7 @@ exclude-newer = "2026-11-04T00:00:00Z"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers --cov=foxcast --cov-report=term-missing --cov-fail-under=80"
+addopts = "--strict-markers --basetemp=.pytest_tmp --cov=foxcast --cov-report=term-missing --cov-fail-under=80"
 markers = [
     "unit: fast tests with no network",
     "integration: tests that replay recorded network fixtures",

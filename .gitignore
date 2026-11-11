@@ -13,3 +13,4 @@ dist/
 data/
 *.duckdb
 *.parquet
+.pytest_tmp/
