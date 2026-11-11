@@ -2,10 +2,21 @@
 
 import json
 import random
+import re
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
+from typing import Final
+
+TICKER_PATTERN: Final = re.compile(r"^\^?[A-Z0-9][A-Z0-9.=-]{0,14}$")
+
+
+def validate_ticker(ticker: str) -> str:
+    """Tickers end up in file names, so only plain symbol characters are allowed."""
+    if not TICKER_PATTERN.fullmatch(ticker):
+        raise ValueError(f"not a valid ticker symbol: {ticker!r}")
+    return ticker
 
 
 @dataclass(frozen=True)
@@ -21,7 +32,9 @@ class Watchlist:
 def draw_watchlist(
     universe: Sequence[str], *, size: int, seed: int, drawn_on: date, universe_source: str
 ) -> Watchlist:
-    members = sorted({ticker.strip().upper() for ticker in universe if ticker.strip()})
+    members = sorted(
+        {validate_ticker(ticker.strip().upper()) for ticker in universe if ticker.strip()}
+    )
     if size > len(members):
         raise ValueError(f"cannot draw {size} from a universe of {len(members)}")
     picked = sorted(random.Random(seed).sample(members, size))  # noqa: S311 (not for security)

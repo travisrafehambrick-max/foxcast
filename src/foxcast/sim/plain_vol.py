@@ -18,6 +18,7 @@ from foxcast.sim.grid import DEFAULT_PATHS, QuantileForecast, quantiles_of
 
 MIN_HISTORY_DAYS: Final = 500
 PERCENT: Final = 100.0  # arch is better conditioned on returns in percent
+FIT_CHECK_BAND: Final = (0.5, 2.0)  # implied over realised variance
 MODEL_LABEL: Final = "GJR-GARCH(1,1,1) Student-t, zero mean, bootstrap paths"
 
 
@@ -61,10 +62,17 @@ def forecast_plain_vol(
     if paths_values is None:
         raise RuntimeError("arch returned no simulated paths")
     simulated = paths_values[-1] / PERCENT  # (paths, horizon) daily log returns
-    horizon_log_returns = simulated.sum(axis=1)
+    sums = simulated.sum(axis=1)
+    # Shift so the expected simple return is exactly zero (brief 2.2: risk-free, zero here).
+    horizon_log_returns = sums - float(np.log(np.mean(np.exp(sums))))
 
     realised = float(np.var(np.asarray(log_returns, dtype=float), ddof=1))
     implied = float(np.mean(result.conditional_volatility**2)) / PERCENT**2
+    ratio = implied / realised
+    if result.convergence_flag != 0:
+        raise ValueError("volatility model fit did not converge")
+    if not FIT_CHECK_BAND[0] <= ratio <= FIT_CHECK_BAND[1]:
+        raise ValueError(f"fit check failed: implied/realised variance ratio {ratio:.2f}")
     return QuantileForecast(
         forecast_id="plain_vol",
         horizon_days=horizon,
@@ -75,6 +83,6 @@ def forecast_plain_vol(
             "model": MODEL_LABEL,
             "params": {k: float(v) for k, v in result.params.items()},
             "simulated_log_return_variance": float(np.var(horizon_log_returns, ddof=1)),
-            "fit_check_variance_ratio": implied / realised,
+            "fit_check_variance_ratio": ratio,
         },
     )

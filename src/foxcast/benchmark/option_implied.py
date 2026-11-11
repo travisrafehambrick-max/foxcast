@@ -56,6 +56,15 @@ def forecast_option_implied(
         return f"option-implied fit failed: {type(exc).__name__}: {exc}"
     returns = [price / spot - 1.0 for price in prices]
     monotone = [max(returns[: i + 1]) for i in range(len(returns))]
+    try:
+        return _build(monotone, expiry, valuation, spot, horizon_days)
+    except ValueError as exc:
+        return f"option-implied fit gave unusable quantiles: {exc}"
+
+
+def _build(
+    monotone: list[float], expiry: date, valuation: date, spot: float, horizon_days: int | None
+) -> QuantileForecast:
     return QuantileForecast(
         forecast_id=FORECAST_ID,
         horizon_days=horizon_days if horizon_days is not None else (expiry - valuation).days,
@@ -66,5 +75,6 @@ def forecast_option_implied(
             "expiry": expiry.isoformat(),
             "spot": spot,
             "calendar_days": (expiry - valuation).days,
+            "measured_from": "spot at the snapshot time",
         },
     )

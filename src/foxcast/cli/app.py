@@ -17,6 +17,7 @@ from foxcast.config import (
 from foxcast.doctor import Status, run_checks
 from foxcast.ledger.chain import Ledger
 from foxcast.notice import NOTICE_HEADLINE
+from foxcast.snapshot import SnapshotReport
 
 app = typer.Typer(
     help=f"foxcast: sourced stock research and scored forecasts. {NOTICE_HEADLINE}",
@@ -114,14 +115,14 @@ def watchlist_draw(
     )
 
 
-@app.command()
-def snapshot(
-    config: ConfigOption = DEFAULT_CONFIG,
-    force: Annotated[
-        bool, typer.Option("--force", help="Run even if the market is closed.")
-    ] = False,
-) -> None:
-    """Capture today's prices, option chains and analyst views for the watchlist."""
+def _new_york_today() -> str:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+
+
+def _take_snapshot(config: Path, force: bool) -> SnapshotReport:
     from foxcast.snapshot import MarketClosedError, run_snapshot
     from foxcast.watchlist import load_watchlist
 
@@ -137,13 +138,46 @@ def snapshot(
         raise typer.Exit(code=2) from exc
     style = "red" if report.alarm else "green"
     console.print(
-        f"[{style}]{report.day}: {len(report.written)} tables written, "
-        f"{len(report.failures)} failures ({report.failure_rate:.0%})[/{style}]"
+        f"[{style}]{report.day}: {len(report.written)} tables written, {len(report.kept)} kept "
+        f"from an earlier run today, {len(report.failures)} failures "
+        f"({report.failure_rate:.0%})[/{style}]"
     )
     for failure in report.failures:
         console.print(f"  {failure}")
-    if report.alarm:
+    return report
+
+
+@app.command()
+def snapshot(
+    config: ConfigOption = DEFAULT_CONFIG,
+    force: Annotated[
+        bool, typer.Option("--force", help="Run even if the market is closed.")
+    ] = False,
+) -> None:
+    """Capture today's prices, option chains and analyst views for the watchlist."""
+    if _take_snapshot(config, force).alarm:
         raise typer.Exit(code=1)
+
+
+def _make_forecasts(config: Path, day: str) -> None:
+    from datetime import date
+
+    from foxcast.daily import run_daily_forecasts
+    from foxcast.watchlist import load_watchlist
+
+    try:
+        date.fromisoformat(day)
+    except ValueError as exc:
+        console.print(f"[red]--day must be YYYY-MM-DD, got {day!r}[/red]")
+        raise typer.Exit(code=1) from exc
+    data, watchlist_path, ledger_path = _paths(_settings(config))
+    tickers = load_watchlist(watchlist_path).tickers
+    result = run_daily_forecasts(
+        tickers, data, Ledger(ledger_path), day=day, project=Path(__file__).resolve().parents[3]
+    )
+    console.print(f"{day}: frozen {len(result.frozen)}, skipped {len(result.skipped)}.")
+    for reason in result.skipped:
+        console.print(f"  {reason}")
 
 
 @app.command()
@@ -151,60 +185,69 @@ def forecast(
     numbers_only: Annotated[
         bool, typer.Option("--numbers-only", help="Forecasts 1, 2 and 4; no model.")
     ] = True,
-    day: Annotated[str | None, typer.Option("--day", help="Snapshot day, YYYY-MM-DD.")] = None,
+    day: Annotated[
+        str | None, typer.Option("--day", help="Snapshot day (New York date), YYYY-MM-DD.")
+    ] = None,
     config: ConfigOption = DEFAULT_CONFIG,
 ) -> None:
     """Make the numbers-only forecasts from a snapshot and freeze them in the ledger."""
-    from datetime import date
-
-    from foxcast.daily import run_daily_forecasts
-    from foxcast.watchlist import load_watchlist
-
     if not numbers_only:
         console.print("[red]Only --numbers-only forecasts exist before Stage 3.[/red]")
         raise typer.Exit(code=1)
-    data, watchlist_path, ledger_path = _paths(_settings(config))
-    tickers = load_watchlist(watchlist_path).tickers
-    result = run_daily_forecasts(
-        tickers,
-        data,
-        Ledger(ledger_path),
-        day=day or date.today().isoformat(),
-        project=Path(__file__).resolve().parents[3],
-    )
-    console.print(f"Frozen: {len(result.frozen)}. Skipped: {len(result.skipped)}.")
-    for reason in result.skipped:
-        console.print(f"  {reason}")
+    _make_forecasts(config, day or _new_york_today())
 
 
 @app.command()
 def daily(config: ConfigOption = DEFAULT_CONFIG) -> None:
-    """What the scheduler runs: the snapshot, then the numbers-only forecasts."""
-    snapshot(config=config, force=False)
-    forecast(numbers_only=True, day=None, config=config)
+    """What the scheduler runs: the snapshot, then the numbers-only forecasts for that day.
+
+    Forecasts are made even when the snapshot raised the alarm, for every ticker that was
+    captured; the command still exits with an error so the alarm is not missed.
+    """
+    report = _take_snapshot(config, force=False)
+    _make_forecasts(config, report.day)
+    if report.alarm:
+        raise typer.Exit(code=1)
+
+
+@app.command("repair-ledger")
+def repair_ledger(
+    ledger: Annotated[Path, typer.Option("--ledger", help="Path to the ledger file.")],
+) -> None:
+    """Cut off a torn last line left by an interrupted write, after a backup."""
+    target = Ledger(ledger)
+    try:
+        backup = target.repair_torn_tail(ledger.parent / "ledger-backups")
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[green]Repaired.[/green] The original is kept at {backup}.")
 
 
 @app.command()
 def schedule(
-    start_time: Annotated[str, typer.Option("--time", help="Local start time, HH:MM.")] = "11:00",
+    start_time: Annotated[
+        str, typer.Option("--time", help="Start time in New York, HH:MM (market hours).")
+    ] = "10:30",
     apply: Annotated[
         bool, typer.Option("--apply", help="Register it (changes this machine).")
     ] = False,
 ) -> None:
     """Show, or with --apply register, the weekday job in the system's own scheduler."""
-    import subprocess
-
-    from foxcast.schedule import scheduler_command
+    from foxcast.schedule import apply as apply_schedule
+    from foxcast.schedule import describe
 
     project = Path(__file__).resolve().parents[3]
-    command = scheduler_command(project, start_time)
-    console.print("Scheduler command:")
-    console.print("  " + " ".join(command))
+    try:
+        plan = describe(project, start_time)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"Would run: {plan}")
     if not apply:
         console.print("Not registered. Re-run with --apply to register it.")
         return
-    subprocess.run(command, check=True)  # noqa: S603 (fixed argument list, no shell input)
-    console.print("[green]Registered.[/green]")
+    console.print(f"[green]{apply_schedule(project, start_time)}[/green]")
 
 
 def main() -> None:

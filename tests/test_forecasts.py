@@ -52,7 +52,8 @@ def test_naive_matches_lognormal_quantiles(horizon: int) -> None:
     fc = forecast_naive(returns, horizon=horizon, seed=SEED)
     sample_sigma = float(np.std(returns[-63:], ddof=1))
     for level, value in zip(QUANTILE_LEVELS, fc.values, strict=True):
-        expected = math.exp(norm.ppf(level) * sample_sigma * math.sqrt(horizon)) - 1
+        variance = sample_sigma**2 * horizon
+        expected = math.exp(-0.5 * variance + norm.ppf(level) * math.sqrt(variance)) - 1
         assert value == pytest.approx(expected, abs=0.004), level
 
 

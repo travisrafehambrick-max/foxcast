@@ -17,7 +17,9 @@ def forecast_naive(
         raise ValueError(f"need at least {VOL_WINDOW_DAYS} days of history, got {len(log_returns)}")
     sigma = float(np.std(log_returns[-VOL_WINDOW_DAYS:], ddof=1))
     rng = np.random.default_rng(seed)
-    horizon_log_returns = rng.normal(0.0, sigma * np.sqrt(horizon), size=paths)
+    # Log mean of -sigma^2 T / 2 gives a zero expected simple return (brief 2.2).
+    variance = sigma**2 * horizon
+    horizon_log_returns = rng.normal(-0.5 * variance, np.sqrt(variance), size=paths)
     return QuantileForecast(
         forecast_id="naive",
         horizon_days=horizon,

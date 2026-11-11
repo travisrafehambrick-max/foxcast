@@ -7,6 +7,7 @@ Parquet under ``<data_dir>/snapshots/<date>/``, and one health line per run is a
 """
 
 import json
+import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -24,6 +25,7 @@ from foxcast.sources.yahoo import (
     fetch_option_chains,
     fetch_prices,
 )
+from foxcast.watchlist import validate_ticker
 
 ALARM_FAILURE_RATE: Final = 0.10
 EXCHANGE: Final = "XNYS"
@@ -49,6 +51,7 @@ class SnapshotReport:
     day: str
     started_at: str
     written: tuple[str, ...]
+    kept: tuple[str, ...]
     failures: tuple[str, ...]
     failure_rate: float
     alarm: bool
@@ -85,12 +88,19 @@ def run_snapshot(
 
     written: list[str] = []
     failures: list[str] = []
+    kept: list[str] = []
     for symbol in symbols:
+        validate_ticker(symbol)
         for kind, fetch in fetchers.items():
             result = fetch(symbol, now=now)
             if isinstance(result, YahooTable):
                 path = folder / f"{symbol}_{kind}.parquet"
-                result.table.to_parquet(path, index=False)
+                if path.exists():
+                    kept.append(path.name)  # the day's first capture is never replaced
+                    continue
+                temporary = path.with_name(path.name + ".tmp")
+                result.table.to_parquet(temporary, index=False)
+                os.replace(temporary, path)
                 written.append(path.name)
             elif isinstance(result, Unavailable):
                 failures.append(result.reason)
@@ -100,6 +110,7 @@ def run_snapshot(
         day=day,
         started_at=started.isoformat(),
         written=tuple(written),
+        kept=tuple(kept),
         failures=tuple(failures),
         failure_rate=rate,
         alarm=rate > ALARM_FAILURE_RATE,
