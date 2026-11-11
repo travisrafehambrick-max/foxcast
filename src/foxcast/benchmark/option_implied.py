@@ -37,6 +37,7 @@ def forecast_option_implied(
     valuation: date,
     horizon_date: date,
     risk_free_rate: float = 0.0,
+    horizon_days: int | None = None,
 ) -> QuantileForecast | str:
     """Quantiles of the simple return to the nearest expiry, or the reason it is unavailable."""
     expiry = nearest_expiry(chain, horizon_date)
@@ -57,7 +58,7 @@ def forecast_option_implied(
     monotone = [max(returns[: i + 1]) for i in range(len(returns))]
     return QuantileForecast(
         forecast_id=FORECAST_ID,
-        horizon_days=(expiry - valuation).days,
+        horizon_days=horizon_days if horizon_days is not None else (expiry - valuation).days,
         values=tuple(monotone),
         seed=0,
         paths=0,

@@ -145,3 +145,11 @@ def test_option_implied_without_a_near_expiry_is_unavailable() -> None:
     )
     assert isinstance(result, str)
     assert "expiry" in result
+
+
+@pytest.mark.unit
+def test_plain_vol_carries_no_historical_drift() -> None:
+    drifted = garch_log_returns() + 0.002  # a strong upward drift, about 50% a year
+    fc = forecast_plain_vol(drifted, horizon=21, seed=SEED)
+    median = fc.values[QUANTILE_LEVELS.index(0.50)]
+    assert abs(median) < 0.01

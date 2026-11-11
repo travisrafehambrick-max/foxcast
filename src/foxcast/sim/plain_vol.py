@@ -26,8 +26,11 @@ def fit_plain_vol(log_returns: np.ndarray) -> ARCHModelResult:
         raise ValueError(
             f"need at least {MIN_HISTORY_DAYS} days of history, got {len(log_returns)}"
         )
+    # Remove the historical mean first: otherwise the bootstrap carries the past drift into
+    # the forecast, but expected return is set to the risk-free rate (zero here; brief 2.2).
+    demeaned = np.asarray(log_returns, dtype=float) - float(np.mean(log_returns))
     model = arch_model(
-        np.asarray(log_returns, dtype=float) * PERCENT,
+        demeaned * PERCENT,
         mean="Zero",
         vol="GARCH",
         p=1,
