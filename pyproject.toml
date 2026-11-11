@@ -7,13 +7,17 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE", "LICENSES/*"]
 requires-python = ">=3.12,<3.14"
 dependencies = [
+    "arch>=8.0.0",
     "duckdb>=2.0.0",
     "httpx>=0.28.1",
+    "numpy>=2.5.4",
+    "oipd>=2.0.4",
     "pandas>=2.2",
     "pandera>=0.30",
     "pydantic>=2.10",
     "pydantic-settings>=2.10",
     "rich>=14.0",
+    "scipy>=1.18.1",
     "tenacity>=9.0",
     "typer>=0.20",
 ]
@@ -67,3 +71,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
 [tool.mypy]
 strict = true
 python_version = "3.12"
+
+[[tool.mypy.overrides]]
+module = ["oipd", "oipd.*"]
+ignore_missing_imports = true
