@@ -57,6 +57,8 @@ def load_tasks(directory: Path) -> list[Task]:
     tasks = []
     for path in sorted(directory.glob("*.toml")):
         data = tomllib.loads(path.read_text(encoding="utf-8"))
+        if not data.get("expect"):
+            raise ValueError(f"{path.name}: a task must state what it expects")
         tasks.append(
             Task(
                 id=data["id"],
@@ -120,7 +122,11 @@ class ReferenceBackend:
     def _client(self, fixture: str | None) -> httpx.Client:
         if fixture is None or fixture == NOT_FOUND_FIXTURE:
             return httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
-        body = (self._fixtures / fixture).read_bytes()
+        root = self._fixtures.resolve()
+        fixture_path = (root / fixture).resolve()
+        if not fixture_path.is_relative_to(root):
+            raise ValueError(f"fixture {fixture!r} is outside the fixtures folder")
+        body = fixture_path.read_bytes()
         return httpx.Client(
             transport=httpx.MockTransport(lambda r: httpx.Response(200, content=body))
         )

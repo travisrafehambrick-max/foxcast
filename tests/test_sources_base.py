@@ -18,6 +18,11 @@ CONTRACT = pa.DataFrameSchema({"value": pa.Column(int, pa.Check.ge(0))})
 class FakeProvider:
     name = "fake"
     contract = CONTRACT
+    secret_params: frozenset[str] = frozenset({"api_key"})
+    default_throttle = None
+
+    def mismatch(self, query: str, table: pd.DataFrame) -> str | None:
+        return "wrong thing" if query == "wrong" else None
 
     def build_request(self, query: str) -> httpx.Request:
         return httpx.Request("GET", f"https://example.test/{query}")

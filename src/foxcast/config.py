@@ -4,6 +4,7 @@ Environment variables use the ``FOXCAST_`` prefix and override the file. The fil
 hold a key, so a config file can be shared or committed without leaking secrets.
 """
 
+import json
 import tomllib
 from pathlib import Path
 from typing import Any, Final
@@ -15,6 +16,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+ENV_PREFIX: Final = "FOXCAST_"
 SECRET_FIELDS: Final = frozenset({"fred_api_key"})
 DEFAULT_WATCHLIST_SIZE: Final = 10
 MAX_WATCHLIST_SIZE: Final = 500
@@ -31,7 +33,7 @@ def default_config_path() -> Path:
 class Settings(BaseSettings):
     """Everything foxcast needs to know about the machine it runs on."""
 
-    model_config = SettingsConfigDict(env_prefix="FOXCAST_", extra="forbid", frozen=True)
+    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, extra="forbid", frozen=True)
 
     sec_contact: str | None = Field(
         default=None,
@@ -59,12 +61,15 @@ def read_config_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     values = tomllib.loads(path.read_text(encoding="utf-8"))
-    leaked = SECRET_FIELDS & values.keys()
+    # Field names match case-insensitively, with or without the env prefix, so normalise
+    # before checking. Never include the value in the message.
+    leaked = sorted(
+        key for key in values if key.lower().removeprefix(ENV_PREFIX.lower()) in SECRET_FIELDS
+    )
     if leaked:
-        names = ", ".join(sorted(leaked))
         raise ValueError(
-            f"{path} sets {names}; keys must come from the environment "
-            f"(FOXCAST_{names.upper()}), never from the config file"
+            f"{path} sets {', '.join(leaked)}; keys must come from the environment "
+            "(for example FOXCAST_FRED_API_KEY), never from the config file"
         )
     return values
 
@@ -75,13 +80,17 @@ def load_settings(path: Path) -> Settings:
 
 def write_default_config(path: Path, *, data_dir: Path) -> None:
     """Write a starter config file. Never overwrites an existing one."""
-    if path.exists():
-        raise FileExistsError(f"{path} already exists; not overwriting it")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    # A JSON string literal is a valid TOML basic string, so quotes and control
+    # characters in the path are escaped rather than breaking the file.
+    content = (
         "# foxcast configuration. Keys never go in this file: set FOXCAST_SEC_CONTACT\n"
         "# and FOXCAST_FRED_API_KEY as environment variables instead.\n"
-        f'data_dir = "{data_dir.as_posix()}"\n'
-        f"watchlist_size = {DEFAULT_WATCHLIST_SIZE}\n",
-        encoding="utf-8",
+        f"data_dir = {json.dumps(data_dir.as_posix())}\n"
+        f"watchlist_size = {DEFAULT_WATCHLIST_SIZE}\n"
     )
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(content)
+    except FileExistsError as exc:
+        raise FileExistsError(f"{path} already exists; not overwriting it") from exc

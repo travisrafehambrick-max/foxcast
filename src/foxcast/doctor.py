@@ -42,13 +42,30 @@ def check_python(version: Sequence[int]) -> CheckResult:
     return CheckResult("python", Status.FAIL, f"Python {shown}; foxcast supports 3.12 and 3.13")
 
 
+def describe_settings_error(exc: Exception) -> str:
+    """Name the bad fields without echoing their values, which may be secrets."""
+    if isinstance(exc, ValidationError):
+        problems = [
+            f"{'.'.join(str(part) for part in error['loc']) or 'settings'}: {error['msg']}"
+            for error in exc.errors(include_input=False, include_url=False)
+        ]
+        return "; ".join(problems)
+    return str(exc)
+
+
+def try_load_settings(path: Path) -> tuple[Settings | None, str]:
+    try:
+        return load_settings(path), ""
+    except (ValueError, ValidationError) as exc:
+        return None, describe_settings_error(exc)
+
+
 def check_config(path: Path) -> CheckResult:
+    settings, problem = try_load_settings(path)
+    if settings is None:
+        return CheckResult("config", Status.FAIL, f"{path}: {problem}")
     if not path.exists():
         return CheckResult("config", Status.WARN, f"no config at {path}; run `foxcast init`")
-    try:
-        load_settings(path)
-    except (ValueError, ValidationError) as exc:
-        return CheckResult("config", Status.FAIL, f"{path}: {exc}")
     return CheckResult("config", Status.PASS, str(path))
 
 
@@ -98,17 +115,17 @@ def check_sec_reachable(settings: Settings, client: httpx.Client) -> CheckResult
         )
     except httpx.HTTPError as exc:
         return CheckResult("sec reachable", Status.FAIL, f"could not reach SEC: {exc}")
-    if response.status_code >= 400:
+    if not 200 <= response.status_code < 300:
         return CheckResult("sec reachable", Status.FAIL, f"SEC answered {response.status_code}")
     return CheckResult("sec reachable", Status.PASS, f"SEC answered {response.status_code}")
 
 
 def run_checks(config_path: Path, client: httpx.Client) -> list[CheckResult]:
     config_result = check_config(config_path)
-    try:
-        settings = load_settings(config_path)
-    except (ValueError, ValidationError):
-        settings = Settings()
+    loaded, _ = try_load_settings(config_path)
+    # With broken settings, run the remaining checks on defaults (never re-validated, so
+    # they cannot raise); the config row above already reports the failure.
+    settings = loaded if loaded is not None else Settings.model_construct()
     return [
         check_python(tuple(sys.version_info[:3])),
         config_result,
