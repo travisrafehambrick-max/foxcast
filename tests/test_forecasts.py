@@ -15,6 +15,7 @@ from foxcast.sim.naive import forecast_naive
 from foxcast.sim.plain_vol import fit_plain_vol, forecast_plain_vol
 
 SEED = 20261111
+MIN_QUOTE = 0.05
 
 
 def gbm_log_returns(sigma: float, days: int, seed: int = 1) -> np.ndarray:
@@ -100,13 +101,14 @@ def test_plain_vol_records_the_fit_check() -> None:
 def black_scholes_chain(spot: float, sigma: float, valuation: date, expiry: date) -> pd.DataFrame:
     t = (expiry - valuation).days / 365.0
     rows = []
-    for strike in np.arange(spot * 0.6, spot * 1.4 + 1e-9, spot * 0.02):
+    for strike in np.arange(spot * 0.7, spot * 1.3 + 1e-9, spot * 0.02):
         d1 = (math.log(spot / strike) + 0.5 * sigma**2 * t) / (sigma * math.sqrt(t))
         d2 = d1 - sigma * math.sqrt(t)
         call = spot * norm.cdf(d1) - strike * norm.cdf(d2)
         put = strike * norm.cdf(-d2) - spot * norm.cdf(-d1)
         for kind, price in (("call", call), ("put", put)):
-            price = max(price, 0.01)
+            if price < MIN_QUOTE:  # real chains do not quote options this cheap
+                continue
             rows.append(
                 {
                     "strike": round(float(strike), 2),
