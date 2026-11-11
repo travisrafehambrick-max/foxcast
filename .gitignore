@@ -14,3 +14,4 @@ data/
 *.duckdb
 *.parquet
 .pytest_tmp/
+.venv312/
