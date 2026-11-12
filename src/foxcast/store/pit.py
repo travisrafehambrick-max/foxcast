@@ -283,31 +283,47 @@ class FactStore:
 
 
 class FactView:
-    """Resolve cited IDs as of one date. Anything made public later looks absent."""
+    """Resolve cited IDs as of one date. Anything made public later looks absent.
+
+    Records found are cached: a stored ID never changes content (conflicts are refused),
+    so a hit stays true. Misses are not cached, so a fact added later is still found.
+    """
 
     def __init__(self, store: FactStore, as_of: date) -> None:
         self._store = store
         self.as_of = as_of
+        self._facts: dict[str, AnyFact] = {}
+        self._passages: dict[str, Passage] = {}
 
     def get_many(self, fact_ids: Iterable[str]) -> dict[str, AnyFact]:
-        wanted = sorted(set(fact_ids))
-        found: dict[str, AnyFact] = {}
-        numeric = self._store.by_keys(FACTS, wanted, self.as_of)
-        found.update({f.fact_id: f for f in numeric})
-        derived = self._store.by_keys(
-            DERIVED_FACTS, [i for i in wanted if i not in found], self.as_of
-        )
-        found.update({f.fact_id: f for f in derived})
-        text = self._store.by_keys(TEXT_FACTS, [i for i in wanted if i not in found], self.as_of)
-        found.update({f.fact_id: f for f in text})
-        return found
+        wanted = set(fact_ids)
+        missing = sorted(wanted - self._facts.keys())
+        if missing:
+            numeric = self._store.by_keys(FACTS, missing, self.as_of)
+            self._remember(numeric)
+            missing = [i for i in missing if i not in self._facts]
+        if missing:
+            derived = self._store.by_keys(DERIVED_FACTS, missing, self.as_of)
+            self._remember(derived)
+            missing = [i for i in missing if i not in self._facts]
+        if missing:
+            text = self._store.by_keys(TEXT_FACTS, missing, self.as_of)
+            self._remember(text)
+        return {i: self._facts[i] for i in sorted(wanted) if i in self._facts}
+
+    def _remember(self, rows: Sequence[Fact] | Sequence[DerivedFact] | Sequence[TextFact]) -> None:
+        self._facts.update({row.fact_id: row for row in rows})
 
     def get(self, fact_id: str, /) -> AnyFact | None:
         return self.get_many([fact_id]).get(fact_id)
 
     def get_passages(self, passage_ids: Iterable[str]) -> dict[str, Passage]:
-        rows = self._store.by_keys(PASSAGES, sorted(set(passage_ids)), self.as_of)
-        return {p.passage_id: p for p in rows}
+        wanted = set(passage_ids)
+        missing = sorted(wanted - self._passages.keys())
+        if missing:
+            rows = self._store.by_keys(PASSAGES, missing, self.as_of)
+            self._passages.update({p.passage_id: p for p in rows})
+        return {i: self._passages[i] for i in sorted(wanted) if i in self._passages}
 
     def get_passage(self, passage_id: str) -> Passage | None:
         return self.get_passages([passage_id]).get(passage_id)

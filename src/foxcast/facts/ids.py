@@ -9,7 +9,8 @@ SEPARATOR: Final = "\x1f"  # ASCII unit separator: cannot appear in the parts
 
 FACT_PREFIX: Final = "f"
 PASSAGE_PREFIX: Final = "p"
-PREFIXES: Final = frozenset({FACT_PREFIX, PASSAGE_PREFIX})
+CLAIM_PREFIX: Final = "c"
+PREFIXES: Final = frozenset({FACT_PREFIX, PASSAGE_PREFIX, CLAIM_PREFIX})
 
 
 def canonical_id(*parts: str, prefix: str = FACT_PREFIX) -> str:
