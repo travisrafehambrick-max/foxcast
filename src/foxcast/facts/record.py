@@ -83,18 +83,29 @@ MAX_PASSAGE_CHARS: Final = 4000
 ALLOWED_CONTROLS: Final = frozenset("\n\r\t")
 
 
-def has_hidden_characters(text: str) -> bool:
-    """Control characters (bar tab and line breaks) or invisible format characters.
+def is_hidden_character(char: str) -> bool:
+    """A character a reader cannot see but a model may still read.
 
-    Format characters (Unicode category Cf) include bidirectional overrides and zero-width
-    marks, which can hide or reorder text a reader sees. Text values and passages refuse
-    them; the filing-text extractor removes them before the text is archived.
+    Control characters (bar tab and line breaks), format characters (category Cf: bidi
+    overrides, zero-width marks, tag characters), Unicode line and paragraph separators,
+    and variation selectors, all known ways to hide or smuggle text.
     """
-    return any(
-        (unicodedata.category(c) == "Cc" and c not in ALLOWED_CONTROLS)
-        or unicodedata.category(c) == "Cf"
-        for c in text
-    )
+    category = unicodedata.category(char)
+    if category == "Cc":
+        return char not in ALLOWED_CONTROLS
+    if category in {"Cf", "Zl", "Zp"}:
+        return True
+    code = ord(char)
+    return 0xFE00 <= code <= 0xFE0F or 0xE0100 <= code <= 0xE01EF
+
+
+def has_hidden_characters(text: str) -> bool:
+    """True if any character is hidden (see :func:`is_hidden_character`).
+
+    Text values and passages refuse such text; the filing-text extractor removes these
+    characters before the text is archived.
+    """
+    return any(is_hidden_character(c) for c in text)
 
 
 @dataclass(frozen=True)
@@ -263,6 +274,7 @@ __all__ = [
     "decode_archive",
     "facts_from_sec",
     "has_hidden_characters",
+    "is_hidden_character",
     "passage_from_span",
     "sha256_hex",
     "text_fact",

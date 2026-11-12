@@ -20,6 +20,8 @@ class FakeProvider:
     contract = CONTRACT
     secret_params: frozenset[str] = frozenset({"api_key"})
     default_throttle = None
+    allowed_content_types: frozenset[str] | None = None
+    max_bytes = 1_000_000
 
     def mismatch(self, query: str, table: pd.DataFrame) -> str | None:
         return "wrong thing" if query == "wrong" else None

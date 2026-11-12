@@ -19,11 +19,12 @@ import numpy as np
 import pandas as pd
 import pandera.pandas as pa
 
+from foxcast.sources.base import DEFAULT_MAX_BYTES
 from foxcast.sources.throttle import Throttle
 
 SEC_DATA_HOST: Final = "https://data.sec.gov"
 SEC_MAX_REQUESTS_PER_SECOND: Final = 10
-ACCESSION_PATTERN: Final = r"^\d{10}-\d{2}-\d{6}$"
+ACCESSION_PATTERN: Final = r"^[0-9]{10}-[0-9]{2}-[0-9]{6}$"
 NAME_PATTERN: Final = re.compile(r"^[A-Za-z0-9_-]+$")
 PERIOD_KEY: Final = ["cik", "taxonomy", "tag", "unit", "period_start", "period_end"]
 DTYPES: Final = {
@@ -136,6 +137,8 @@ class SecConceptProvider:
     contract = CONCEPT_CONTRACT
     secret_params: frozenset[str] = frozenset()
     default_throttle: Throttle | None = SEC_THROTTLE
+    allowed_content_types: frozenset[str] | None = None
+    max_bytes: int = DEFAULT_MAX_BYTES
 
     def __init__(self, contact: str) -> None:
         if not contact.strip():

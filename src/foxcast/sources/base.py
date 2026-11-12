@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import Final, Protocol, TypeVar
+from typing import Any, Final, Protocol, TypeVar
 
 import httpx
 import pandas as pd
@@ -59,6 +59,9 @@ class Provider(Protocol[QueryT_contra]):
     secret_params: frozenset[str]
     # The source's fair-access limit; used unless the caller passes its own throttle.
     default_throttle: Throttle | None
+    # Media types the response may have (None: not checked), and the largest body read.
+    allowed_content_types: frozenset[str] | None
+    max_bytes: int
 
     def build_request(self, query: QueryT_contra) -> httpx.Request: ...
 
@@ -95,6 +98,39 @@ def _scrub(text: str, raw_url: str, safe_url: str) -> str:
     return text.replace(raw_url, safe_url) if raw_url != safe_url else text
 
 
+DEFAULT_MAX_BYTES: Final = 50_000_000
+
+
+def _refuse_response(
+    provider: "Provider[Any]", response: httpx.Response, name: str, url: str
+) -> FetchResult | None:
+    """Status, media type and declared size, checked before any of the body is read."""
+    if response.status_code == HTTPStatus.NOT_FOUND:
+        return NoData(f"{name}: not found (HTTP 404)", url)
+    if not HTTPStatus.OK <= response.status_code < HTTPStatus.MULTIPLE_CHOICES:
+        return Unavailable(f"{name}: HTTP {response.status_code}", url)
+    allowed = provider.allowed_content_types
+    content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+    if allowed is not None and content_type not in allowed:
+        return Unavailable(f"{name}: unexpected content type {content_type!r}", url)
+    declared = response.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > provider.max_bytes:
+        return Unavailable(f"{name}: response is larger than {provider.max_bytes} bytes", url)
+    return None
+
+
+def _read_capped(response: httpx.Response, cap: int) -> bytes | None:
+    """The body, or None as soon as it grows past ``cap`` (after decompression)."""
+    chunks: list[bytes] = []
+    size = 0
+    for chunk in response.iter_bytes():
+        size += len(chunk)
+        if size > cap:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -119,15 +155,21 @@ def run_provider[QueryT_contra](
     if limiter is not None:
         limiter.wait()
     try:
-        response = client.send(request)
+        response = client.send(request, stream=True)
     except httpx.HTTPError as exc:
         return Unavailable(_scrub(f"{name}: request failed: {exc}", raw_url, url), url)
-    if response.status_code == HTTPStatus.NOT_FOUND:
-        return NoData(f"{name}: not found (HTTP 404)", url)
-    if not HTTPStatus.OK <= response.status_code < HTTPStatus.MULTIPLE_CHOICES:
-        return Unavailable(f"{name}: HTTP {response.status_code}", url)
+    try:
+        refusal = _refuse_response(provider, response, name, url)
+        if refusal is not None:
+            return refusal
+        raw = _read_capped(response, provider.max_bytes)
+    except httpx.HTTPError as exc:
+        return Unavailable(_scrub(f"{name}: reading failed: {exc}", raw_url, url), url)
+    finally:
+        response.close()
+    if raw is None:
+        return Unavailable(f"{name}: response is larger than {provider.max_bytes} bytes", url)
 
-    raw = response.content
     fetched_at = now()
     try:
         shaped = provider.shape(raw)

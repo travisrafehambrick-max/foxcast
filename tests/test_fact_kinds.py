@@ -128,7 +128,19 @@ def test_a_text_fact_and_a_number_built_from_the_same_fields_get_different_ids()
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "value",
-    ["", "   ", "x" * (MAX_TEXT_CHARS + 1), "bad\x00value", "evil‮reversed", "zero​width"],
+    [
+        "",
+        "   ",
+        "x" * (MAX_TEXT_CHARS + 1),
+        "bad" + chr(0x00) + "value",
+        "evil" + chr(0x202E) + "reversed",  # right-to-left override
+        "zero" + chr(0x200B) + "width",
+        "line" + chr(0x2028) + "break",
+        "para" + chr(0x2029) + "break",
+        "variation" + chr(0xFE0F) + "selector",
+        "variation" + chr(0xE0100) + "supplement",
+        "tag" + chr(0xE0041) + "characters",
+    ],
 )
 def test_text_fact_refuses_empty_oversized_or_hidden_character_text(value: str) -> None:
     with pytest.raises(ValueError):
@@ -196,7 +208,7 @@ def test_a_document_that_is_not_utf8_is_refused_with_a_value_error() -> None:
 @pytest.mark.unit
 def test_a_passage_with_hidden_characters_is_refused() -> None:
     with pytest.raises(ValueError, match="invisible"):
-        make_passage(0, 8, "safe‮txt.exe".encode())
+        make_passage(0, 8, ("safe" + chr(0x202E) + "txt.exe").encode())
 
 
 @pytest.mark.unit
