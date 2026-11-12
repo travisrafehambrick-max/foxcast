@@ -7,6 +7,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.hypothesis/
 dist/
 .env
 # Local data: the repo ships code, never data
@@ -15,3 +16,5 @@ data/
 *.parquet
 .pytest_tmp/
 .venv312/
+# Linked checkouts for parallel agents (never commit these trees)
+.worktrees/
