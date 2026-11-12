@@ -77,5 +77,5 @@ strict = true
 python_version = "3.12"
 
 [[tool.mypy.overrides]]
-module = ["oipd", "oipd.*", "yfinance", "yfinance.*", "exchange_calendars", "exchange_calendars.*"]
+module = ["oipd", "oipd.*", "yfinance", "yfinance.*", "exchange_calendars", "exchange_calendars.*", "scipy", "scipy.*"]
 ignore_missing_imports = true
