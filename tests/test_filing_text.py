@@ -324,7 +324,9 @@ def test_deep_nesting_is_refused_rather_than_slow() -> None:
 def test_extraction_stays_linear_on_awkward_html(html: bytes) -> None:
     started = time.perf_counter()
     extract_text(html)
-    assert time.perf_counter() - started < 5.0
+    # Quadratic work on these inputs takes hours; linear work takes seconds, even under
+    # coverage on a slow laptop.
+    assert time.perf_counter() - started < 20.0
 
 
 @pytest.mark.integration

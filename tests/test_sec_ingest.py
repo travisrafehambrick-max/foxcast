@@ -119,3 +119,14 @@ def test_a_plan_refuses_nonsense_limits() -> None:
         IngestPlan(max_8k=-1)
     with pytest.raises(ValueError):
         IngestPlan(concepts=("bad tag!",))
+
+
+@pytest.mark.integration
+def test_every_fact_has_its_source_copy_in_the_archive(tmp_path: Path) -> None:
+    _, store, archive = run(tmp_path, date(2026, 11, 11))
+    revenue = store.as_of(cik=GOOGL, field="us-gaap:Revenues", as_of=date(2026, 11, 11))
+    trades = store.as_of(cik=GOOGL, field="sec:form4:t1:shares", as_of=date(2026, 11, 11))
+    items = store.text_as_of(cik=GOOGL, field="sec:8-K:item", as_of=date(2026, 11, 11))
+    assert revenue and trades and items
+    for fact in [*revenue, *trades, *items]:
+        assert archive.load(fact.content_sha256)  # raises if the copy is missing

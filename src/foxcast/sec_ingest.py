@@ -160,6 +160,7 @@ def _read_form4s(ctx: _Context, report: IngestReport, index: pd.DataFrame, limit
             report.unavailable.append(f"Form 4 {row['accession']}: {fetched}")
             continue
         numbers, texts = form4_facts(fetched, accession=row["accession"], filed=row["filed"])
+        ctx.archive.save(fetched.raw)
         report.numbers += ctx.store.add(numbers)
         report.text_facts += ctx.store.add_text(texts)
 
@@ -170,6 +171,7 @@ def _read_concepts(ctx: _Context, report: IngestReport, concepts: tuple[str, ...
         if isinstance(fetched, str):
             report.unavailable.append(f"XBRL {concept}: {fetched}")
             continue
+        ctx.archive.save(fetched.raw)
         facts: list[Fact] = _public(facts_from_sec(fetched), ctx.as_of)
         report.numbers += ctx.store.add(facts)
 
