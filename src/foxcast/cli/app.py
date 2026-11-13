@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 import typer
@@ -500,6 +500,219 @@ def dossier(
         f"{filled} sections filled, {unavailable} unavailable; "
         f"wrote {md_path} and {json_path}."
     )
+
+
+def _load_submitted_claims(path: Path) -> tuple[list[Any], dict[str, int]]:
+    """Read a claims JSON file: a list, or ``{"claims": [...], "companies": {...}}``."""
+    import json
+
+    from foxcast.claims.render import ClaimType, SubmittedClaim
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read claims file {path}: {exc}") from exc
+
+    companies: dict[str, int] = {}
+    if isinstance(data, list):
+        raw_claims = data
+    elif isinstance(data, dict):
+        raw = data.get("claims")
+        if not isinstance(raw, list):
+            raise ValueError("claims file must be a list or an object with a 'claims' list")
+        raw_claims = raw
+        raw_companies = data.get("companies") or {}
+        if not isinstance(raw_companies, dict):
+            raise ValueError("claims file 'companies' must be an object of name/ticker → CIK")
+        try:
+            companies = {str(name): int(cik) for name, cik in raw_companies.items()}
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"claims file 'companies' values must be CIK integers: {exc}") from exc
+    else:
+        raise ValueError("claims file must be a list or an object with a 'claims' list")
+
+    claims: list[SubmittedClaim] = []
+    for index, item in enumerate(raw_claims):
+        if not isinstance(item, dict):
+            raise ValueError(f"claim {index} must be an object")
+        try:
+            cites = item["cites"]
+            if not isinstance(cites, list) or not all(isinstance(c, str) for c in cites):
+                raise ValueError("cites must be a list of strings")
+            claims.append(
+                SubmittedClaim(
+                    section=str(item["section"]),
+                    type=ClaimType(str(item["type"])),
+                    text=str(item["text"]),
+                    cites=tuple(cites),
+                    probability=item.get("probability"),
+                )
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"claim {index} is invalid: {exc}") from exc
+    return claims, companies
+
+
+@app.command("check-claims")
+def check_claims(
+    ticker: Annotated[
+        str, typer.Argument(help="US ticker symbol (resolved via SEC unless --cik).")
+    ],
+    as_of: Annotated[
+        str,
+        typer.Option("--as-of", help="Point-in-time date for the record (YYYY-MM-DD)."),
+    ],
+    claims: Annotated[
+        Path,
+        typer.Option(
+            "--claims",
+            help="JSON file: a list of submitted claims, or {claims, companies}.",
+        ),
+    ],
+    config: ConfigOption = DEFAULT_CONFIG,
+    cik: Annotated[
+        int | None,
+        typer.Option("--cik", help="SEC CIK; skips the ticker lookup when set."),
+    ] = None,
+    company: Annotated[
+        str | None,
+        typer.Option("--company", help="Company name added to the words-check map (optional)."),
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Write a JSON report to this path (optional)."),
+    ] = None,
+) -> None:
+    """Review and check submitted claims against the local fact store (rows 1a / 1c).
+
+    Same path the dossier builder uses: render/review each claim, then ``check_dossier``.
+    Exit code 1 if any claim is withheld.
+    """
+    import json
+    from datetime import date
+
+    from foxcast.claims.checker import CheckContext, check_dossier
+    from foxcast.claims.render import (
+        RenderedClaim,
+        WithheldClaim,
+        claim_id_of,
+        review_claim,
+    )
+    from foxcast.dossier.builder import NOT_A_SECTION, shown_reason
+    from foxcast.dossier.schema import CLAIM_TARGETS
+    from foxcast.store.archive import SourceArchive
+    from foxcast.store.pit import FactStore
+    from foxcast.watchlist import validate_ticker
+
+    settings = _settings(config)
+    try:
+        symbol = validate_ticker(ticker.strip().upper())
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    try:
+        as_of_date = date.fromisoformat(as_of)
+    except ValueError as exc:
+        console.print(f"[red]--as-of must be YYYY-MM-DD, got {as_of!r}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    data = settings.data_dir
+    store_path = data / "facts.duckdb"
+    if not store_path.exists():
+        console.print(
+            f"[red]No fact store at {store_path}. Run `foxcast ingest` for this ticker first.[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        archive = SourceArchive.outside_git(settings.archive_dir)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    if cik is None:
+        contact = _require_sec_contact(settings)
+        with httpx.Client() as client:
+            try:
+                resolved = _resolve_cik(client, contact, symbol)
+            except (ValueError, httpx.HTTPError) as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(code=1) from exc
+    else:
+        resolved = cik
+
+    try:
+        submitted, file_companies = _load_submitted_claims(claims)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    # File map first; CLI subject ticker (and optional --company) always win.
+    companies = {**file_companies, symbol: resolved}
+    if company:
+        companies[company] = resolved
+
+    store = FactStore(store_path)
+    view = store.at(as_of_date)
+    # Same review loop as foxcast.dossier.builder._review (CLAIM_TARGETS + review_claim).
+    reviewed: list[RenderedClaim | WithheldClaim] = []
+    for claim in submitted:
+        if claim.section not in CLAIM_TARGETS:
+            reviewed.append(
+                WithheldClaim(
+                    claim_id_of(claim),
+                    claim.section,
+                    claim.type,
+                    claim.text,
+                    claim.cites,
+                    (NOT_A_SECTION,),
+                )
+            )
+        else:
+            reviewed.append(review_claim(claim, view))
+
+    context = CheckContext(view=view, archive=archive, subject_cik=resolved, companies=companies)
+    result = check_dossier(reviewed, context)
+
+    style = "yellow" if result.withheld else "green"
+    rate = f"; rate {result.rate:.0%}" if result.rate is not None else ""
+    console.print(
+        f"[{style}]{symbol} as of {as_of_date}:[/{style}] "
+        f"{result.verified} verified, {len(result.withheld)} withheld "
+        f"({result.counted} counted){rate}; "
+        f"words check {result.words_check_version}."
+    )
+    for entry in result.withheld:
+        reasons = "; ".join(shown_reason(r) for r in entry.reasons)
+        console.print(f"  withheld {entry.claim_id} ({entry.section}/{entry.type}): {reasons}")
+
+    if out is not None:
+        report = {
+            "ticker": symbol,
+            "cik": resolved,
+            "as_of": as_of_date.isoformat(),
+            "words_check_version": result.words_check_version,
+            "counted": result.counted,
+            "verified": result.verified,
+            "withheld": len(result.withheld),
+            "rate": result.rate,
+            "shown": [c.claim_id for c in result.shown],
+            "withheld_claims": [
+                {
+                    "claim_id": w.claim_id,
+                    "section": w.section,
+                    "type": str(w.type),
+                    "reasons": [shown_reason(r) for r in w.reasons],
+                }
+                for w in result.withheld
+            ],
+        }
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        console.print(f"Wrote {out}.")
+
+    if result.withheld:
+        raise typer.Exit(code=1)
 
 
 @app.command("repair-ledger")
