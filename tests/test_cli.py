@@ -1,4 +1,4 @@
-"""The command line: init, doctor and ingest."""
+"""The command line: init, doctor, ingest, dossier and check-claims."""
 
 from datetime import date
 from pathlib import Path
@@ -264,6 +264,214 @@ def test_dossier_refuses_archive_inside_a_git_work_tree(
     result = runner.invoke(
         cli_app.app,
         ["dossier", "GOOGL", "--as-of", "2026-11-12", "--cik", "1", "--config", str(config)],
+    )
+    assert result.exit_code == 1
+    assert "git" in result.output.lower()
+
+
+@pytest.mark.unit
+def test_check_claims_command_is_registered() -> None:
+    names = {
+        command.name or (command.callback.__name__ if command.callback else "")
+        for command in cli_app.app.registered_commands
+    }
+    assert "check-claims" in names
+
+
+@pytest.mark.unit
+def test_check_claims_refuses_missing_fact_store(tmp_path: Path) -> None:
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    claims = tmp_path / "claims.json"
+    claims.write_text("[]\n", encoding="utf-8")
+    config.write_text(f'data_dir = "{data.as_posix()}"\narchive_dir = "{archive_dir.as_posix()}"\n')
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "check-claims",
+            "GOOGL",
+            "--as-of",
+            "2026-11-12",
+            "--cik",
+            "1652044",
+            "--claims",
+            str(claims),
+            "--config",
+            str(config),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "fact store" in result.output.lower()
+
+
+@pytest.mark.unit
+def test_check_claims_empty_file_reports_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxcast.store import archive as archive_module
+    from foxcast.store.pit import FactStore
+
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    claims = tmp_path / "claims.json"
+    out = tmp_path / "report.json"
+    claims.write_text("[]\n", encoding="utf-8")
+    config.write_text(f'data_dir = "{data.as_posix()}"\narchive_dir = "{archive_dir.as_posix()}"\n')
+    data.mkdir()
+    FactStore(data / "facts.duckdb")
+    monkeypatch.setattr(archive_module, "git_work_tree_of", lambda _: None)
+
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "check-claims",
+            "GOOGL",
+            "--as-of",
+            "2026-11-12",
+            "--cik",
+            "1652044",
+            "--claims",
+            str(claims),
+            "--out",
+            str(out),
+            "--config",
+            str(config),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "0 verified" in result.output
+    assert "0 withheld" in result.output
+    assert out.exists()
+    report = out.read_text(encoding="utf-8")
+    assert '"counted": 0' in report
+    assert '"verified": 0' in report
+
+
+@pytest.mark.unit
+def test_check_claims_refuses_bad_claims_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxcast.store import archive as archive_module
+    from foxcast.store.pit import FactStore
+
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    claims = tmp_path / "claims.json"
+    claims.write_text('{"nope": true}\n', encoding="utf-8")
+    config.write_text(f'data_dir = "{data.as_posix()}"\narchive_dir = "{archive_dir.as_posix()}"\n')
+    data.mkdir()
+    FactStore(data / "facts.duckdb")
+    monkeypatch.setattr(archive_module, "git_work_tree_of", lambda _: None)
+
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "check-claims",
+            "GOOGL",
+            "--as-of",
+            "2026-11-12",
+            "--cik",
+            "1652044",
+            "--claims",
+            str(claims),
+            "--config",
+            str(config),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "claims" in result.output.lower()
+
+
+@pytest.mark.unit
+def test_check_claims_withholds_and_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A claim that cites a missing fact ID is withheld (dossier check path)."""
+    import json
+
+    from foxcast.store import archive as archive_module
+    from foxcast.store.pit import FactStore
+
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    claims = tmp_path / "claims.json"
+    missing = "f_" + ("0" * 16)
+    claims.write_text(
+        json.dumps(
+            [
+                {
+                    "section": "financial_health",
+                    "type": "fact",
+                    "text": f"Revenue was {{{missing}}}.",
+                    "cites": [missing],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config.write_text(f'data_dir = "{data.as_posix()}"\narchive_dir = "{archive_dir.as_posix()}"\n')
+    data.mkdir()
+    FactStore(data / "facts.duckdb")
+    monkeypatch.setattr(archive_module, "git_work_tree_of", lambda _: None)
+
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "check-claims",
+            "GOOGL",
+            "--as-of",
+            "2026-11-12",
+            "--cik",
+            "1652044",
+            "--company",
+            "Alphabet",
+            "--claims",
+            str(claims),
+            "--config",
+            str(config),
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert "0 verified" in result.output
+    assert "1 withheld" in result.output
+    assert "withheld" in result.output
+
+
+@pytest.mark.unit
+def test_check_claims_refuses_archive_inside_a_git_work_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxcast.store.pit import FactStore
+
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    claims = tmp_path / "claims.json"
+    claims.write_text("[]\n", encoding="utf-8")
+    data.mkdir()
+    (data / ".git").mkdir()
+    FactStore(data / "facts.duckdb")
+    config.write_text(
+        f'data_dir = "{data.as_posix()}"\narchive_dir = "{(data / "sources").as_posix()}"\n'
+    )
+    monkeypatch.setenv("FOXCAST_SEC_CONTACT", "Jane Doe jane@example.com")
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "check-claims",
+            "GOOGL",
+            "--as-of",
+            "2026-11-12",
+            "--cik",
+            "1",
+            "--claims",
+            str(claims),
+            "--config",
+            str(config),
+        ],
     )
     assert result.exit_code == 1
     assert "git" in result.output.lower()

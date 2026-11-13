@@ -59,6 +59,7 @@ Shared lock files (`pyproject.toml`, `uv.lock`, `SCORECARD.md`, `scorecard.toml`
 - Stage 0.5 test hardening on `main` (PR #1).
 - `foxcast ingest` uses `settings.archive_dir` via `SourceArchive.outside_git` (not under the data repo).
 - `foxcast dossier` wires `build_dossier` / `write_dossier` (no-model path; research claims in 1A.7) (PR #4).
+- `foxcast check-claims` wires review + `check_dossier` against the local fact store (CLI only; no checker rewrite).
 - **Next:** Stage **1A.7** MCP tool server + cost meter. 10-K section splitting waits on `edgartools` until **2026-11-16**.
 
 ## Honesty reminders
