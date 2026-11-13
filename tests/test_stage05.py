@@ -11,8 +11,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.stats import norm
+from typer.testing import CliRunner
 
-from foxcast.daily import horizon_date, run_daily_forecasts, seed_for
+from foxcast.cli import app as cli_app
+from foxcast.daily import code_version, horizon_date, run_daily_forecasts, seed_for
 from foxcast.ledger.chain import Ledger
 from foxcast.snapshot import MarketClosedError, market_is_open, run_snapshot
 from foxcast.sources.base import Unavailable
@@ -144,6 +146,61 @@ def test_analyst_views_are_a_long_table() -> None:
     assert items["rating_buy"] == 10.0
 
 
+@pytest.mark.unit
+def test_empty_or_failing_yahoo_tables_return_unavailable() -> None:
+    class EmptyPrices(FakeTicker):
+        def history(self, **kwargs: Any) -> pd.DataFrame:
+            return pd.DataFrame()
+
+    empty_prices = fetch_prices("ABC", factory=lambda s: EmptyPrices(), now=lambda: OPEN)
+    assert isinstance(empty_prices, Unavailable)
+    assert "no rows" in empty_prices.reason
+
+    class NoExpiries(FakeTicker):
+        def __init__(self) -> None:
+            super().__init__()
+            self.options = ()
+
+    no_exp = fetch_option_chains("ABC", factory=lambda s: NoExpiries(), now=lambda: OPEN)
+    assert isinstance(no_exp, Unavailable)
+    assert "no listed expiries" in no_exp.reason
+
+    class BrokenChains(FakeTicker):
+        def option_chain(self, date: str) -> Any:
+            raise ConnectionError("chain endpoint down")
+
+    bad_chain = fetch_option_chains("ABC", factory=lambda s: BrokenChains(), now=lambda: OPEN)
+    assert isinstance(bad_chain, Unavailable)
+    assert "chain endpoint down" in bad_chain.reason
+
+    class BrokenAnalysts(FakeTicker):
+        def get_analyst_price_targets(self) -> dict[str, Any]:
+            raise ConnectionError("analyst endpoint down")
+
+    bad_analysts = fetch_analyst_views("ABC", factory=lambda s: BrokenAnalysts(), now=lambda: OPEN)
+    assert isinstance(bad_analysts, Unavailable)
+    assert "analyst endpoint down" in bad_analysts.reason
+
+    class TargetsOnly(FakeTicker):
+        def get_recommendations_summary(self) -> pd.DataFrame:
+            return pd.DataFrame()
+
+    targets_only = fetch_analyst_views("ABC", factory=lambda s: TargetsOnly(), now=lambda: OPEN)
+    assert isinstance(targets_only, YahooTable)
+    assert "target_mean" in set(targets_only.table["item"])
+
+    class EmptyAnalysts(FakeTicker):
+        def get_analyst_price_targets(self) -> dict[str, Any]:
+            return {}
+
+        def get_recommendations_summary(self) -> pd.DataFrame:
+            return pd.DataFrame()
+
+    empty_analysts = fetch_analyst_views("ABC", factory=lambda s: EmptyAnalysts(), now=lambda: OPEN)
+    assert isinstance(empty_analysts, Unavailable)
+    assert "no rows" in empty_analysts.reason
+
+
 # --- snapshot ----------------------------------------------------------------------------
 
 
@@ -187,6 +244,62 @@ def test_snapshot_raises_the_alarm_above_one_in_ten(tmp_path: Path) -> None:
     report = run_snapshot(["ABC"], tmp_path, now=lambda: OPEN, fetchers=fetchers(fail=True))
     assert report.failure_rate == 0.5
     assert report.alarm
+
+    tickers = [f"T{i:02d}" for i in range(10)]
+    one_in_ten = {
+        "prices": lambda s, now: fetch_prices(s, factory=fake(fail=(s == "T00")), now=now)
+    }
+    at_threshold = run_snapshot(tickers, tmp_path / "at", now=lambda: OPEN, fetchers=one_in_ten)
+    assert at_threshold.failure_rate == pytest.approx(0.10)
+    assert not at_threshold.alarm
+
+
+@pytest.mark.unit
+def test_cli_snapshot_and_run_exit_2_when_market_is_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = CliRunner()
+    data_dir = tmp_path / "data"
+    config = tmp_path / "foxcast.toml"
+    config.write_text(f'data_dir = "{data_dir.as_posix()}"\n', encoding="utf-8")
+    watchlist = draw_watchlist(
+        ["ABC"], size=1, seed=1, drawn_on=date(2026, 11, 11), universe_source="test"
+    )
+    save_watchlist(watchlist, data_dir / "watchlist.json")
+
+    def closed_snapshot(
+        symbols: Any,
+        target_dir: Path,
+        *,
+        require_market_open: bool = True,
+    ) -> Any:
+        return run_snapshot(
+            symbols,
+            target_dir,
+            now=lambda: CLOSED,
+            fetchers=fetchers(),
+            require_market_open=require_market_open,
+        )
+
+    monkeypatch.setattr("foxcast.snapshot.run_snapshot", closed_snapshot)
+
+    snap_closed = runner.invoke(cli_app.app, ["snapshot", "--config", str(config)])
+    assert snap_closed.exit_code == 2
+    assert "XNYS is closed" in snap_closed.output
+    assert "nothing captured" in snap_closed.output
+    assert not (data_dir / "snapshots").exists()
+
+    run_closed = runner.invoke(cli_app.app, ["run", "--config", str(config)])
+    assert run_closed.exit_code == 2
+    assert "XNYS is closed" in run_closed.output
+    assert "nothing captured" in run_closed.output
+    assert not (data_dir / "snapshots").exists()
+    assert not (data_dir / "ledger.jsonl").exists()
+
+    snap_forced = runner.invoke(cli_app.app, ["snapshot", "--force", "--config", str(config)])
+    assert snap_forced.exit_code == 0, snap_forced.output
+    assert "2 tables written" in snap_forced.output
+    assert (data_dir / "snapshots" / "2026-11-14" / "ABC_prices.parquet").exists()
 
 
 # --- watchlist -------------------------------------------------------------------------
@@ -259,3 +372,51 @@ def test_option_forecast_is_labelled_in_trading_days(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
     result = run_daily_forecasts(["ABC"], tmp_path, ledger, day="2026-11-11", project=tmp_path)
     assert "2026-11-11:ABC:option_raw:21" in result.frozen
+
+
+@pytest.mark.unit
+def test_code_version_reports_dirty_or_falls_back_without_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "foxcast.daily._git",
+        lambda project, *args: "deadbeef" if args == ("rev-parse", "HEAD") else " M file.py",
+    )
+    assert code_version(tmp_path) == "deadbeef+dirty"
+
+    def no_git(project: Path, *args: str) -> str:
+        raise OSError("git not installed")
+
+    monkeypatch.setattr("foxcast.daily._git", no_git)
+    assert code_version(tmp_path).startswith("package ")
+    assert "git unknown" in code_version(tmp_path)
+
+
+@pytest.mark.unit
+def test_daily_forecasts_skip_short_history_and_missing_or_distant_chains(tmp_path: Path) -> None:
+    short_fetchers = {
+        "prices": lambda s, now: fetch_prices(
+            s,
+            factory=lambda sym: SimpleNamespace(history=lambda **kw: price_history(days=10)),  # type: ignore[return-value]
+            now=now,
+        ),
+    }
+    run_snapshot(["SHORT"], tmp_path, now=lambda: OPEN, fetchers=short_fetchers)
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    result = run_daily_forecasts(["SHORT"], tmp_path, ledger, day="2026-11-11", project=tmp_path)
+    assert result.frozen == ()
+    assert len(result.skipped) == 5
+    assert any("no option chain snapshot" in reason for reason in result.skipped)
+
+    distant_chain = {
+        "prices": lambda s, now: fetch_prices(
+            s,
+            factory=lambda sym: SimpleNamespace(history=lambda **kw: price_history(days=10)),  # type: ignore[return-value]
+            now=now,
+        ),
+        "chains": lambda s, now: fetch_option_chains(s, factory=fake(expiry_days=90), now=now),
+    }
+    run_snapshot(["FAR"], tmp_path, now=lambda: OPEN, fetchers=distant_chain)
+    far_result = run_daily_forecasts(["FAR"], tmp_path, ledger, day="2026-11-11", project=tmp_path)
+    assert far_result.frozen == ()
+    assert any("FAR option_raw: no option expiry" in reason for reason in far_result.skipped)
