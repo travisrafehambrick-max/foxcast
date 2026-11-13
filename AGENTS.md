@@ -37,13 +37,15 @@ Shared lock files (`pyproject.toml`, `uv.lock`, `SCORECARD.md`, `scorecard.toml`
 5. Prefer merge order: truth/library → CLI wiring → stubs/docs.
 6. If two agents need the same file, **stop and serialize**.
 
-## Stage 1A status (as of 2026-11-12)
+## Stage 1A status (as of 2026-11-13)
 
 - **1A.1–1A.5** on `main`.
+- **1A.6** dossier builder on `main` (PR #3).
 - Fiscal-period labels + archive guard on `main` (PR #2).
 - Stage 0.5 test hardening on `main` (PR #1).
 - `foxcast ingest` uses `settings.archive_dir` via `SourceArchive.outside_git` (not under the data repo).
-- **Next Claude:** Stage **1A.6** dossier builder in a fresh session on `.worktrees/claude` (branch `claude-1a6-dossier`, already off `main`). 10-K section splitting waits on `edgartools` until **2026-11-16**.
+- `foxcast dossier` wires `build_dossier` / `write_dossier` (no-model path; research claims in 1A.7).
+- **Next:** Stage **1A.7** MCP tool server + cost meter. 10-K section splitting waits on `edgartools` until **2026-11-16**.
 
 ## Honesty reminders
 
