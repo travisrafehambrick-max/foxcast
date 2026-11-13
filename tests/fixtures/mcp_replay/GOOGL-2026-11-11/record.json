@@ -1,0 +1,21 @@
+{
+  "dossier": {
+    "built_at": "2026-11-13T10:00:56+00:00",
+    "claims_counted": 5,
+    "claims_verified": 3,
+    "claims_withheld": 2,
+    "cost": {
+      "result_bytes": 23176,
+      "tool_calls": 8,
+      "wall_seconds": 2.0
+    },
+    "items_shown": 32,
+    "json_file": "GOOGL-2026-11-11.json",
+    "json_sha256": "5907b9d676f5c8ddec6339892ab29e6c39517a703a66d01ba7bff067bbf75aec",
+    "markdown_file": "GOOGL-2026-11-11.md",
+    "markdown_sha256": "6b1f865244dbc1e100a27241d535e436f7c5016e0f2fe749c72f1b151b9c7743",
+    "sections_filled": 9,
+    "sections_unavailable": 10
+  },
+  "run": "GOOGL-2026-11-11"
+}

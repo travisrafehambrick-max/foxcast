@@ -1,0 +1,14 @@
+{
+  "as_of": "2026-11-11",
+  "cik": 1652044,
+  "code_commit": "fixture-commit",
+  "company": "Alphabet Inc.",
+  "holding": "not-declared",
+  "model_cutoff": "2026-06",
+  "model_name": "Claude Opus 5.5",
+  "opened_at": "2026-11-13T10:00:00+00:00",
+  "prompt_sha256": "406d31267959d82682b9def6f13d8e95ddf1dda2a5e0d344a9a4c3e924847462",
+  "run_id": "GOOGL-2026-11-11",
+  "ticker": "GOOGL",
+  "ticker_verified": true
+}
