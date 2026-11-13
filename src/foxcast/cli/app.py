@@ -647,7 +647,8 @@ def check_claims(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
-    companies = {symbol: resolved, **file_companies}
+    # File map first; CLI subject ticker (and optional --company) always win.
+    companies = {**file_companies, symbol: resolved}
     if company:
         companies[company] = resolved
 

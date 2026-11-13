@@ -386,6 +386,68 @@ def test_check_claims_refuses_bad_claims_json(
 
 
 @pytest.mark.unit
+def test_check_claims_object_form_keeps_subject_cik(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``{claims, companies}`` is accepted; CLI subject ticker CIK wins over a colliding key."""
+    import json
+
+    from foxcast.claims.checker import WORDS_CHECK_VERSION, DossierCheck
+    from foxcast.store import archive as archive_module
+    from foxcast.store.pit import FactStore
+
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    claims = tmp_path / "claims.json"
+    claims.write_text(
+        json.dumps(
+            {
+                "claims": [],
+                "companies": {"GOOGL": 999, "Alphabet": 1652044},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config.write_text(f'data_dir = "{data.as_posix()}"\narchive_dir = "{archive_dir.as_posix()}"\n')
+    data.mkdir()
+    FactStore(data / "facts.duckdb")
+    monkeypatch.setattr(archive_module, "git_work_tree_of", lambda _: None)
+
+    captured: dict[str, object] = {}
+
+    def fake_check(reviewed: object, context: object) -> DossierCheck:
+        captured["companies"] = dict(context.companies)  # type: ignore[attr-defined]
+        return DossierCheck((), (), 0, 0, WORDS_CHECK_VERSION)
+
+    monkeypatch.setattr("foxcast.claims.checker.check_dossier", fake_check)
+
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "check-claims",
+            "GOOGL",
+            "--as-of",
+            "2026-11-12",
+            "--cik",
+            "1652044",
+            "--company",
+            "Alphabet Inc.",
+            "--claims",
+            str(claims),
+            "--config",
+            str(config),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    companies = captured["companies"]
+    assert isinstance(companies, dict)
+    assert companies["GOOGL"] == 1652044
+    assert companies["Alphabet"] == 1652044
+    assert companies["Alphabet Inc."] == 1652044
+
+
+@pytest.mark.unit
 def test_check_claims_withholds_and_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
