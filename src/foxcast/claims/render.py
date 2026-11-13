@@ -244,6 +244,14 @@ def _kind(item: Fact | TextFact | Passage) -> SourceKind:
     raise UngradableSourceError(f"no grade for the source of {item.field!r}")
 
 
+def source_grade(item: Cited, view: FactView) -> tuple[Reliability, Credibility]:
+    """The weakest grade behind one item; a derived fact takes its inputs' weakest."""
+    worst = weakest(_grades([item], view))
+    if worst is None:
+        raise UngradableSourceError("an item with no gradable source")
+    return worst
+
+
 def _grades(items: list[Cited], view: FactView) -> Iterator[tuple[Reliability, Credibility]]:
     for item in items:
         if isinstance(item, DerivedFact):
@@ -266,7 +274,8 @@ def _citation_problems(claim: SubmittedClaim) -> list[str]:
         problems.append("the claim cites the same item twice")
     for cite in claim.cites:
         if not PLACEHOLDER.fullmatch("{" + cite + "}"):
-            problems.append(f"{cite!r} is not a fact or passage ID")
+            # Not echoed: a reason is shown in the dossier, and the cite is model text.
+            problems.append("a cited item is not a fact or passage ID")
     for placed in PLACEHOLDER.findall(claim.text):
         if placed not in claim.cites:
             problems.append(f"{placed} is placed in the text but not cited")

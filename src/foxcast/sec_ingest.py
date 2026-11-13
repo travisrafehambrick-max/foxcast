@@ -59,6 +59,13 @@ DEFAULT_CONCEPTS: Final = (
     "CashAndCashEquivalentsAtCarryingValue",
     "NetCashProvidedByUsedInOperatingActivities",
     "PaymentsToAcquirePropertyPlantAndEquipment",
+    # Capital structure and dilution (dossier section 7).
+    "LongTermDebt",
+    "LongTermDebtNoncurrent",
+    "WeightedAverageNumberOfDilutedSharesOutstanding",
+    "PaymentsForRepurchaseOfCommonStock",
+    "ShareBasedCompensation",
+    "PaymentsOfDividends",
 )
 CONCEPT_NAME: Final = re.compile(r"^[A-Za-z0-9_-]+$")
 

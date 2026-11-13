@@ -6,7 +6,7 @@ from datetime import date, timedelta
 import numpy as np
 import pandas as pd
 import pytest
-from arch import arch_model
+from arch.univariate import GARCH, StudentsT, ZeroMean
 from scipy.stats import norm
 
 from foxcast.benchmark.option_implied import forecast_option_implied
@@ -23,7 +23,9 @@ def gbm_log_returns(sigma: float, days: int, seed: int = 1) -> np.ndarray:
 
 
 def garch_log_returns(days: int = 2500, seed: int = 7) -> np.ndarray:
-    model = arch_model(None, mean="Zero", vol="GARCH", p=1, o=1, q=1, dist="t")
+    # The seed must reach the simulator: arch_model(None, ...) draws from numpy's global
+    # state, so each run fitted a different series and the variance check failed at random.
+    model = ZeroMean(None, volatility=GARCH(p=1, o=1, q=1), distribution=StudentsT(seed=seed))
     params = np.array([0.02, 0.05, 0.08, 0.88, 7.0])
     sim = model.simulate(params, nobs=days, burn=500, initial_value=None)
     return sim["data"].to_numpy() / 100.0  # percent to fraction
