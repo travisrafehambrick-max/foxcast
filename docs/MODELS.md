@@ -6,10 +6,10 @@ Status values: **not built**, **built, not validated**, **validated** (its score
 
 | # | Forecast | Status | Stage |
 |---|---|---|---|
-| 1 | Naive (constant volatility) | not built | 0.5 |
-| 2 | Plain volatility model | not built | 0.5 |
+| 1 | Naive (constant volatility) | built, not validated | 0.5 |
+| 2 | Plain volatility model | built, not validated | 0.5 |
 | 3 | Event-aware | not built | 2 |
-| 4 | Option-implied, raw | not built | 0.5 |
+| 4 | Option-implied, raw | built, not validated | 0.5 |
 | 5 | Option-implied, corrected | not built | 2 |
 | 6 | Blend (the headline) | not built | 2 |
 | 7 | Event-aware plus research | not built | 3 |

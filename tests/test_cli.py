@@ -1,5 +1,6 @@
-"""The command line: init and doctor."""
+"""The command line: init, doctor and ingest."""
 
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from typer.testing import CliRunner
 
 from foxcast.cli import app as cli_app
 from foxcast.doctor import CheckResult, Status
+from foxcast.sec_ingest import IngestReport
 
 runner = CliRunner()
 
@@ -67,3 +69,81 @@ def test_on_demand_run_exists_and_there_is_no_scheduler() -> None:
     assert "run" in commands
     assert "schedule" not in commands
     assert "daily" not in commands
+
+
+@pytest.mark.unit
+def test_ingest_command_is_registered() -> None:
+    names = {
+        command.name or (command.callback.__name__ if command.callback else "")
+        for command in cli_app.app.registered_commands
+    }
+    assert "ingest" in names
+
+
+@pytest.mark.unit
+def test_ingest_refuses_missing_sec_contact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "foxcast.toml"
+    config.write_text(f'data_dir = "{(tmp_path / "data").as_posix()}"\n')
+    monkeypatch.delenv("FOXCAST_SEC_CONTACT", raising=False)
+    result = runner.invoke(
+        cli_app.app, ["ingest", "GOOGL", "--as-of", "2026-11-11", "--config", str(config)]
+    )
+    assert result.exit_code == 1
+    assert "FOXCAST_SEC_CONTACT" in result.output
+
+
+@pytest.mark.unit
+def test_ingest_calls_library_with_cik(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    config.write_text(f'data_dir = "{data.as_posix()}"\n')
+    monkeypatch.setenv("FOXCAST_SEC_CONTACT", "Jane Doe jane@example.com")
+
+    calls: list[tuple[int, date]] = []
+
+    def fake_ingest(
+        cik: int,
+        *,
+        as_of: date,
+        client: object,
+        contact: str,
+        store: object,
+        archive: object,
+        **_: object,
+    ) -> IngestReport:
+        calls.append((cik, as_of))
+        assert contact == "Jane Doe jane@example.com"
+        assert store is not None and archive is not None
+        return IngestReport(
+            cik=cik,
+            as_of=as_of,
+            index_complete=True,
+            documents=("10-K 1",),
+            passages=3,
+            text_facts=2,
+            numbers=4,
+            unavailable=["XBRL NetIncomeLoss: 404"],
+        )
+
+    monkeypatch.setattr("foxcast.sec_ingest.ingest_company", fake_ingest)
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "ingest",
+            "GOOGL",
+            "--as-of",
+            "2026-11-11",
+            "--cik",
+            "1652044",
+            "--config",
+            str(config),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert calls == [(1652044, date(2026, 11, 11))]
+    assert "1652044" in result.output
+    assert "3 passages" in result.output
+    assert "unavailable: XBRL NetIncomeLoss: 404" in result.output
+    assert (data / "facts.duckdb").exists()

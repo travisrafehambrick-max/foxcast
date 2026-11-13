@@ -88,6 +88,90 @@ def _paths(settings: Settings) -> tuple[Path, Path, Path]:
     return data, data / "watchlist.json", data / "ledger.jsonl"
 
 
+def _require_sec_contact(settings: Settings) -> str:
+    from foxcast.doctor import check_sec_contact
+
+    result = check_sec_contact(settings)
+    if result.status is Status.FAIL or settings.sec_contact is None:
+        console.print(f"[red]{result.detail}[/red]")
+        raise typer.Exit(code=1)
+    return settings.sec_contact
+
+
+def _resolve_cik(client: httpx.Client, contact: str, ticker: str) -> int:
+    from foxcast.doctor import SEC_PROBE_URL
+    from foxcast.sources.tickers import parse_sec_ticker_file
+    from foxcast.watchlist import validate_ticker
+
+    symbol = validate_ticker(ticker.strip().upper())
+    response = client.get(SEC_PROBE_URL, headers={"User-Agent": contact}, timeout=30.0)
+    response.raise_for_status()
+    mapping = parse_sec_ticker_file(response.content)
+    cik = mapping.get(symbol)
+    if cik is None:
+        raise ValueError(f"ticker {symbol!r} is not in the SEC company list")
+    return cik
+
+
+@app.command()
+def ingest(
+    ticker: Annotated[str, typer.Argument(help="US ticker symbol (resolved via SEC).")],
+    as_of: Annotated[
+        str,
+        typer.Option("--as-of", help="Keep only facts public on or before this date (YYYY-MM-DD)."),
+    ],
+    config: ConfigOption = DEFAULT_CONFIG,
+    cik: Annotated[
+        int | None,
+        typer.Option("--cik", help="SEC CIK; skips the ticker lookup when set."),
+    ] = None,
+) -> None:
+    """Fetch one company's SEC record into the local fact store and source archive."""
+    from datetime import date
+
+    from foxcast.sec_ingest import ingest_company
+    from foxcast.store.archive import SourceArchive
+    from foxcast.store.pit import FactStore
+
+    settings = _settings(config)
+    contact = _require_sec_contact(settings)
+    try:
+        as_of_date = date.fromisoformat(as_of)
+    except ValueError as exc:
+        console.print(f"[red]--as-of must be YYYY-MM-DD, got {as_of!r}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    data = settings.data_dir
+    data.mkdir(parents=True, exist_ok=True)
+    store = FactStore(data / "facts.duckdb")
+    archive = SourceArchive(data / "sources")
+
+    with httpx.Client() as client:
+        try:
+            resolved = cik if cik is not None else _resolve_cik(client, contact, ticker)
+        except (ValueError, httpx.HTTPError) as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=1) from exc
+        report = ingest_company(
+            resolved,
+            as_of=as_of_date,
+            client=client,
+            contact=contact,
+            store=store,
+            archive=archive,
+        )
+
+    console.print(
+        f"[green]CIK {report.cik} as of {report.as_of}:[/green] "
+        f"{report.passages} passages, {report.text_facts} text facts, "
+        f"{report.numbers} numbers; {len(report.documents)} documents."
+    )
+    if not report.index_complete:
+        console.print("[yellow]Filing index incomplete (older filings may be missing).[/yellow]")
+    for reason in report.unavailable:
+        console.print(f"  unavailable: {reason}")
+
+
 @app.command("watchlist")
 def watchlist_draw(
     universe: Annotated[
