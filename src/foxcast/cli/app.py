@@ -380,6 +380,128 @@ def run_now(config: ConfigOption = DEFAULT_CONFIG) -> None:
         raise typer.Exit(code=1)
 
 
+@app.command()
+def dossier(
+    ticker: Annotated[
+        str, typer.Argument(help="US ticker symbol (resolved via SEC unless --cik).")
+    ],
+    as_of: Annotated[
+        str,
+        typer.Option("--as-of", help="Point-in-time date for the record (YYYY-MM-DD)."),
+    ],
+    config: ConfigOption = DEFAULT_CONFIG,
+    cik: Annotated[
+        int | None,
+        typer.Option("--cik", help="SEC CIK; skips the ticker lookup when set."),
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Folder for the .md and .json files (default: data/dossiers)."),
+    ] = None,
+    company: Annotated[
+        str | None,
+        typer.Option("--company", help="Short company name for the header (optional)."),
+    ] = None,
+    holding: Annotated[
+        str,
+        typer.Option(
+            "--holding",
+            help="Operator position: 'holds', 'none', or 'not-declared' (default).",
+        ),
+    ] = "not-declared",
+) -> None:
+    """Build a no-model dossier from the local fact store and write Markdown + JSON.
+
+    Research claims and the MCP tool server arrive in Stage 1A.7; this command is the
+    Stage 1A.6 path that fills sections from the record and marks the rest unavailable.
+    """
+    from datetime import UTC, date, datetime
+
+    from foxcast.daily import code_version
+    from foxcast.dossier.builder import DossierRequest, build_dossier
+    from foxcast.dossier.output import UnverifiedClaimError, write_dossier
+    from foxcast.dossier.schema import Holding, SilentGapError, Status
+    from foxcast.store.archive import SourceArchive
+    from foxcast.store.pit import FactStore
+    from foxcast.watchlist import validate_ticker
+
+    holdings = {
+        "holds": Holding.HOLDS,
+        "none": Holding.NONE,
+        "not-declared": Holding.NOT_DECLARED,
+    }
+    if holding not in holdings:
+        console.print(
+            f"[red]--holding must be one of {', '.join(sorted(holdings))}, got {holding!r}[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    settings = _settings(config)
+    try:
+        symbol = validate_ticker(ticker.strip().upper())
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    try:
+        as_of_date = date.fromisoformat(as_of)
+    except ValueError as exc:
+        console.print(f"[red]--as-of must be YYYY-MM-DD, got {as_of!r}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    data = settings.data_dir
+    store_path = data / "facts.duckdb"
+    if not store_path.exists():
+        console.print(
+            f"[red]No fact store at {store_path}. Run `foxcast ingest` for this ticker first.[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        archive = SourceArchive.outside_git(settings.archive_dir)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    if cik is None:
+        contact = _require_sec_contact(settings)
+        with httpx.Client() as client:
+            try:
+                resolved = _resolve_cik(client, contact, symbol)
+            except (ValueError, httpx.HTTPError) as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(code=1) from exc
+    else:
+        resolved = cik
+
+    folder = out if out is not None else data / "dossiers"
+    # Same project root as forecast: src/foxcast/cli/app.py → repo root is parents[3].
+    project = Path(__file__).resolve().parents[3]
+    store = FactStore(store_path)
+    try:
+        request = DossierRequest(
+            ticker=symbol,
+            cik=resolved,
+            as_of=as_of_date,
+            built_at=datetime.now(UTC),
+            company=company,
+            holding=holdings[holding],
+            code_commit=code_version(project),
+        )
+        built = build_dossier(request, store, archive)
+        md_path, json_path = write_dossier(built, folder)
+    except (ValueError, SilentGapError, UnverifiedClaimError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    filled = sum(1 for s in built.sections if s.status is Status.FILLED)
+    unavailable = len(built.sections) - filled
+    console.print(
+        f"[green]{symbol} as of {as_of_date}:[/green] "
+        f"{filled} sections filled, {unavailable} unavailable; "
+        f"wrote {md_path} and {json_path}."
+    )
+
+
 @app.command("repair-ledger")
 def repair_ledger(
     ledger: Annotated[Path, typer.Option("--ledger", help="Path to the ledger file.")],

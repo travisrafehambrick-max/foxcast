@@ -178,3 +178,92 @@ def test_ingest_refuses_archive_inside_a_git_data_repo(
     )
     assert result.exit_code == 1
     assert "git" in result.output.lower()
+
+
+@pytest.mark.unit
+def test_dossier_command_is_registered() -> None:
+    names = {
+        command.name or (command.callback.__name__ if command.callback else "")
+        for command in cli_app.app.registered_commands
+    }
+    assert "dossier" in names
+
+
+@pytest.mark.unit
+def test_dossier_refuses_missing_fact_store(tmp_path: Path) -> None:
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    config.write_text(f'data_dir = "{data.as_posix()}"\narchive_dir = "{archive_dir.as_posix()}"\n')
+    result = runner.invoke(
+        cli_app.app,
+        ["dossier", "GOOGL", "--as-of", "2026-11-12", "--cik", "1652044", "--config", str(config)],
+    )
+    assert result.exit_code == 1
+    assert "fact store" in result.output.lower()
+
+
+@pytest.mark.unit
+def test_dossier_writes_markdown_and_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from foxcast.store import archive as archive_module
+    from foxcast.store.pit import FactStore
+
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    out = tmp_path / "out"
+    config.write_text(f'data_dir = "{data.as_posix()}"\narchive_dir = "{archive_dir.as_posix()}"\n')
+    data.mkdir()
+    FactStore(data / "facts.duckdb")  # empty record still yields 19 sections
+    monkeypatch.setattr(archive_module, "git_work_tree_of", lambda _: None)
+
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "dossier",
+            "GOOGL",
+            "--as-of",
+            "2026-11-12",
+            "--cik",
+            "1652044",
+            "--company",
+            "Alphabet Inc.",
+            "--out",
+            str(out),
+            "--config",
+            str(config),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "unavailable" in result.output
+    assert (out / "GOOGL-2026-11-12.md").exists()
+    assert (out / "GOOGL-2026-11-12.json").exists()
+    markdown = (out / "GOOGL-2026-11-12.md").read_text(encoding="utf-8")
+    # Markdown escapes the period in "Inc."
+    assert "Alphabet Inc\\." in markdown
+    assert '"company": "Alphabet Inc."' in (out / "GOOGL-2026-11-12.json").read_text(
+        encoding="utf-8"
+    )
+
+
+@pytest.mark.unit
+def test_dossier_refuses_archive_inside_a_git_work_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxcast.store.pit import FactStore
+
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / ".git").mkdir()
+    FactStore(data / "facts.duckdb")
+    config.write_text(
+        f'data_dir = "{data.as_posix()}"\narchive_dir = "{(data / "sources").as_posix()}"\n'
+    )
+    monkeypatch.setenv("FOXCAST_SEC_CONTACT", "Jane Doe jane@example.com")
+    result = runner.invoke(
+        cli_app.app,
+        ["dossier", "GOOGL", "--as-of", "2026-11-12", "--cik", "1", "--config", str(config)],
+    )
+    assert result.exit_code == 1
+    assert "git" in result.output.lower()
