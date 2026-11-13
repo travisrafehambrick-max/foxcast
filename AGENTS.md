@@ -10,9 +10,9 @@ Naming: `.worktrees/<agent>` (agent name only). Each agent gets **one branch** i
 |------|--------|--------|
 | repo root (`foxcast/`) | `main` | Integration only; short hotfixes OK |
 | `.worktrees/cursor` | `cursor-cli-wiring` | Cursor — CLI / docs / structure |
-| `.worktrees/claude-stage1` | `claude-1a6-dossier` | Claude Code — Stage 1 claim/dossier lane |
-| `.worktrees/antigravity-scaffold` | `antigravity-package-skeletons` | Antigravity — Stage 0.5 tests / operator docs |
-| `.worktrees/devin-stage2-stubs` | `devin-stage2-stubs` | Devin — Stage 2 stubs |
+| `.worktrees/claude` | `claude-1a6-dossier` | Claude Code — Stage 1 claim/dossier lane |
+| `.worktrees/antigravity` | `antigravity-package-skeletons` | Antigravity — Stage 0.5 tests / operator docs |
+| `.worktrees/devin` | `devin-stage2-stubs` | Devin — Stage 2 stubs |
 
 `.worktrees/` is gitignored. One branch per worktree; never check out the same branch in two places.
 
@@ -43,7 +43,7 @@ Shared lock files (`pyproject.toml`, `uv.lock`, `SCORECARD.md`, `scorecard.toml`
 - Fiscal-period labels + archive guard on `main` (PR #2).
 - Stage 0.5 test hardening on `main` (PR #1).
 - `foxcast ingest` uses `settings.archive_dir` via `SourceArchive.outside_git` (not under the data repo).
-- **Next Claude:** Stage **1A.6** dossier builder in a fresh session on `.worktrees/claude-stage1` (branch `claude-1a6-dossier`, already off `main`). 10-K section splitting waits on `edgartools` until **2026-11-16**.
+- **Next Claude:** Stage **1A.6** dossier builder in a fresh session on `.worktrees/claude` (branch `claude-1a6-dossier`, already off `main`). 10-K section splitting waits on `edgartools` until **2026-11-16**.
 
 ## Honesty reminders
 
