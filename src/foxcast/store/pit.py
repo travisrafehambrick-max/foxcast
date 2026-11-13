@@ -94,6 +94,19 @@ class StoreConflictError(ValueError):
     """An ID already stored with different content."""
 
 
+@dataclass(frozen=True)
+class DocumentSummary:
+    """An archived filing document, summarised from its passages."""
+
+    accession: str
+    form: str
+    public_on: date
+    passages: int
+    fetched_at: datetime
+    source_url: str
+    content_sha256: str
+
+
 def _parse_fetched_at[T: (Fact, TextFact, Passage)](cls: type[T]) -> Callable[[Row], T]:
     index = [f.name for f in fields(cls)].index("fetched_at")
 
@@ -304,6 +317,41 @@ class FactStore:
             [cik, as_of],
             "period_end, field, fact_id",
         )
+
+    # --- whole-company reads, for building a dossier ---
+
+    def numbers_for(self, *, cik: int, field_prefix: str, as_of: date) -> list[Fact]:
+        """Numeric facts about one company whose field starts with ``field_prefix``."""
+        return self._select(
+            FACTS,
+            "cik = ? AND starts_with(field, ?) AND public_on <= ?",
+            [cik, field_prefix, as_of],
+            "field, period_end, public_on, fact_id",
+        )
+
+    def texts_for(self, *, cik: int, field_prefix: str, as_of: date) -> list[TextFact]:
+        """Text facts about one company whose field starts with ``field_prefix``."""
+        return self._select(
+            TEXT_FACTS,
+            "cik = ? AND starts_with(field, ?) AND public_on <= ?",
+            [cik, field_prefix, as_of],
+            "field, period_end NULLS FIRST, public_on, fact_id",
+        )
+
+    def documents_for(self, *, cik: int, as_of: date) -> list[DocumentSummary]:
+        """One line per archived filing document with passages public on ``as_of``."""
+        with duckdb.connect(str(self._path), read_only=True) as connection:
+            rows = connection.execute(
+                "SELECT accession, form, min(public_on), count(*), max(fetched_at), "
+                "min(source_url), min(content_sha256) FROM passages "
+                "WHERE cik = ? AND public_on <= ? GROUP BY accession, form "
+                "ORDER BY min(public_on) DESC, accession",
+                [cik, as_of],
+            ).fetchall()
+        return [
+            DocumentSummary(a, f, p, int(n), datetime.fromisoformat(t), u, h)
+            for a, f, p, n, t, u, h in rows
+        ]
 
     def at(self, as_of: date) -> "FactView":
         """A view that resolves IDs, but only for facts public on ``as_of``."""
