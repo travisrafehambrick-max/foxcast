@@ -8,15 +8,15 @@ Each task gets a **new** branch `[agent]-[topic]` cut from green `origin/main` (
 
 ## Worktrees
 
-| Path | Current branch (example) | Owner |
-|------|--------------------------|--------|
+| Path | Between tasks | Owner |
+|------|---------------|--------|
 | repo root (`foxcast/`) | `main` | Integration only; short hotfixes OK |
-| `.worktrees/cursor` | `cursor-agents-protocol` | Cursor — CLI / docs / structure |
-| `.worktrees/claude` | *(new topic from `main` per task)* | Claude Code — Stage 1 claim/dossier lane |
-| `.worktrees/antigravity` | *(new topic from `main` per task)* | Antigravity — Stage 0.5 tests / operator docs |
-| `.worktrees/devin` | *(new topic from `main` per task)* | Devin — Stage 2 stubs |
+| `.worktrees/cursor` | `cursor-idle` (or a live `[agent]-[topic]`) | Cursor — CLI / docs / structure |
+| `.worktrees/claude` | `claude-idle` (or a live topic) | Claude Code — Stage 1 claim/dossier lane |
+| `.worktrees/antigravity` | `antigravity-idle` (or a live topic) | Antigravity — Stage 0.5 tests / operator docs |
+| `.worktrees/devin` | `devin-idle` (or a live topic) | Devin — Stage 2 stubs |
 
-`.worktrees/` is gitignored. One checked-out branch per worktree; never check out the same branch in two places. The table's "current branch" column is a snapshot — update it when you start a topic, or leave a placeholder.
+`.worktrees/` is gitignored. One checked-out branch per worktree; never check out the same branch in two places. Between tasks, park on `<agent>-idle` at `origin/main`. When a topic starts, replace that with `git checkout -B <agent>-<topic> origin/main`.
 
 ## Ownership
 
@@ -40,7 +40,7 @@ Shared lock files (`pyproject.toml`, `uv.lock`, `SCORECARD.md`, `scorecard.toml`
    `-B` recreates the branch tip at `origin/main` so you are never behind. Do not rename an old merged topic and keep working on it.
 2. Work only in your worktree; `uv sync` there; do not share `.pytest_tmp` or DuckDB scratch across trees.
 3. Open a short PR early so CI runs on the branch.
-4. After your PR merges (or after another lane merges into `main`), start the **next** task with step 1 and a **new** topic name. Optionally delete the remote topic branch after merge (`git push origin --delete <old-topic>`).
+4. After your PR merges: delete the remote topic branch (`git push origin --delete <agent>-<topic>`), park the worktree on `<agent>-idle` at `origin/main` (`git checkout -B <agent>-idle origin/main`), then start the **next** task with step 1 and a **new** topic name. If another lane merges while you are idle, fast-forward idle the same way before starting work.
 5. Prefer merge order: truth/library → CLI wiring → stubs/docs.
 6. If two agents need the same file, **stop and serialize**.
 
@@ -49,6 +49,7 @@ Shared lock files (`pyproject.toml`, `uv.lock`, `SCORECARD.md`, `scorecard.toml`
 - Treat `[agent]-topic` as a permanent agent identity branch.
 - Start new work on a tip that already merged to `main` without recreating from `origin/main`.
 - Check out the same branch in two worktrees.
+- Leave merged topic remotes hanging; delete them after merge.
 
 ## Stage 1A status (as of 2026-11-13)
 
