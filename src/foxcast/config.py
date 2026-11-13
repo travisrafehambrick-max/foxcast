@@ -26,6 +26,11 @@ def default_home() -> Path:
     return Path.home() / ".foxcast"
 
 
+def default_archive_dir() -> Path:
+    """Beside the data repo, not inside it: raw filings never go into git."""
+    return default_home() / "archive"
+
+
 def default_config_path() -> Path:
     return default_home() / "foxcast.toml"
 
@@ -41,6 +46,10 @@ class Settings(BaseSettings):
     )
     fred_api_key: SecretStr | None = None
     data_dir: Path = Field(default_factory=lambda: default_home() / "data")
+    archive_dir: Path = Field(
+        default_factory=default_archive_dir,
+        description="Raw fetched sources, content-addressed; kept outside any git repository.",
+    )
     watchlist_size: int = Field(default=DEFAULT_WATCHLIST_SIZE, ge=1, le=MAX_WATCHLIST_SIZE)
 
     @classmethod
@@ -87,6 +96,8 @@ def write_default_config(path: Path, *, data_dir: Path) -> None:
         "# foxcast configuration. Keys never go in this file: set FOXCAST_SEC_CONTACT\n"
         "# and FOXCAST_FRED_API_KEY as environment variables instead.\n"
         f"data_dir = {json.dumps(data_dir.as_posix())}\n"
+        "# Raw filings stay out of git: keep archive_dir outside any repository.\n"
+        f"archive_dir = {json.dumps(default_archive_dir().as_posix())}\n"
         f"watchlist_size = {DEFAULT_WATCHLIST_SIZE}\n"
     )
     try:

@@ -6,6 +6,10 @@ A fact is one fetched value with its provenance and three times:
 - ``public_on``: the first day the public could have known it;
 - ``fetched_at``: when foxcast fetched it.
 
+An XBRL fact may also carry its company's fiscal label (``fiscal_year``, ``fiscal_period``;
+see :mod:`foxcast.facts.fiscal`). The label is read from the same source copy, so it is
+rebuilt and checked with the value; it is not part of the ``fact_id``.
+
 Point-in-time queries filter on ``public_on``. The ``fact_id`` is a hash of the source copy
 and the fact's identifying fields, so the same fetch always yields the same IDs, and a
 model can cite a fact only by an ID that code issued.
@@ -17,6 +21,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Final
 
+from foxcast.facts.fiscal import fiscal_labels
 from foxcast.facts.ids import canonical_id
 from foxcast.sources.base import Fetched
 
@@ -38,12 +43,16 @@ class Fact:
     source_url: str
     content_sha256: str
     accession: str | None
+    fiscal_year: int | None = None
+    fiscal_period: str | None = None  # Q1 to Q4, H1, H2 or FY
 
 
 def facts_from_sec(fetched: Fetched) -> list[Fact]:
     """Turn a fetched SEC company-concept table into facts."""
+    rows = fetched.table.to_dict("records")
+    labels = fiscal_labels(rows)
     facts = []
-    for row in fetched.table.to_dict("records"):
+    for row in rows:
         field = f"{row['taxonomy']}:{row['tag']}"
         start = row["period_start"]
         period_start: date | None = start if isinstance(start, date) else None
@@ -59,6 +68,7 @@ def facts_from_sec(fetched: Fetched) -> list[Fact]:
             period_end.isoformat(),
             accession,
         )
+        fiscal_year, fiscal_period = labels.get((period_start, period_end), (None, None))
         facts.append(
             Fact(
                 fact_id=fact_id,
@@ -73,6 +83,8 @@ def facts_from_sec(fetched: Fetched) -> list[Fact]:
                 source_url=fetched.url,
                 content_sha256=fetched.content_sha256,
                 accession=accession,
+                fiscal_year=fiscal_year,
+                fiscal_period=fiscal_period,
             )
         )
     return facts
