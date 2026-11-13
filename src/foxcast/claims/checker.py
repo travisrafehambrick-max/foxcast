@@ -31,6 +31,7 @@ from typing import Any, Final
 from foxcast.claims.numbers_rule import PLACEHOLDER
 from foxcast.claims.render import ClaimType, RenderedClaim, WithheldClaim, render_item
 from foxcast.facts.derived import DerivedFact, UntraceableError, recompute, trace
+from foxcast.facts.fiscal import HALF_DAYS, QUARTER_DAYS, YEAR_DAYS, within
 from foxcast.facts.record import (
     SEC_PUBLIC_LAG,
     Fact,
@@ -102,21 +103,46 @@ FULL_DATE: Final = re.compile(
 QUARTER: Final = re.compile(rf"\bQ([1-4])(?: ({YEAR}))?\b|\b(first|second|third|fourth) quarter\b",
                             re.IGNORECASE)  # fmt: skip
 HALF: Final = re.compile(rf"\bH([12])(?: ({YEAR}))?\b|\b(first|second) half\b", re.IGNORECASE)
-FISCAL_YEAR: Final = re.compile(rf"\b(?:FY ?|fiscal (?:year )?)({YEAR})\b", re.IGNORECASE)
+FY_WORD: Final = r"(?:FY ?|fiscal (?:year )?)"
+FISCAL_YEAR: Final = re.compile(rf"\b{FY_WORD}({YEAR})\b", re.IGNORECASE)
+YEAR_DIGITS: Final = 4
+
+
+def _fiscal_part_pattern(letter: str, numbers: str, words: str, noun: str) -> re.Pattern[str]:
+    """A company's own quarter or half, in either order: "fiscal Q1 2026", "Q1 FY2026",
+    "Q1 of fiscal 2026", "FY2026 Q1", "the first quarter of fiscal 2026", "first quarter
+    fiscal 2026", "fiscal 2026 first quarter", "the fiscal first quarter"."""
+    return re.compile(
+        rf"\b{letter}([{numbers}]) (?:of )?{FY_WORD}({YEAR})\b"
+        rf"|\b{FY_WORD}({YEAR}) {letter}([{numbers}])\b"
+        rf"|\bfiscal {letter}([{numbers}])(?: ({YEAR}))?\b"
+        rf"|\b(?:fiscal )?({words}) {noun}(?: of)? {FY_WORD}({YEAR})\b"
+        rf"|\b{FY_WORD}({YEAR}) ({words}) {noun}\b"
+        rf"|\bfiscal ({words}) {noun}\b",
+        re.IGNORECASE,
+    )
+
+
+FISCAL_QUARTER: Final = _fiscal_part_pattern("Q", "1-4", "first|second|third|fourth", "quarter")
+FISCAL_HALF: Final = _fiscal_part_pattern("H", "12", "first|second", "half")
+# Any fiscal wording at all. Beside it, a plain quarter or half is ambiguous and withheld.
+FISCAL_WORDING: Final = re.compile(r"\bfiscal\b|\bFY", re.IGNORECASE)
 BARE_YEAR: Final = re.compile(rf"\b({YEAR})\b")
 PER_SHARE: Final = re.compile(r"\bper share\b|\bEPS\b", re.IGNORECASE)
 SHARE_COUNT: Final = re.compile(r"\bshares\b", re.IGNORECASE)
-QUARTER_DAYS: Final = (80, 100)
-HALF_DAYS: Final = (170, 190)
-YEAR_DAYS: Final = (355, 375)
+# A fiscal year with no fiscal label is taken as the calendar year only if it ends in
+# December; any other year end needs the label (some companies name a year by its start).
+CALENDAR_YEAR_END_MONTH: Final = 12
 
 WORDS_CHECK_VERSION: Final = hashlib.sha256(
     json.dumps(
         {
             "metrics": METRICS,
-            "patterns": [FULL_DATE.pattern, QUARTER.pattern, HALF.pattern, FISCAL_YEAR.pattern,
+            "patterns": [FULL_DATE.pattern, FISCAL_QUARTER.pattern, FISCAL_HALF.pattern,
+                         FISCAL_WORDING.pattern, QUARTER.pattern, HALF.pattern, FISCAL_YEAR.pattern,
                          BARE_YEAR.pattern, PER_SHARE.pattern, SHARE_COUNT.pattern],
             "days": [QUARTER_DAYS, HALF_DAYS, YEAR_DAYS],
+            "fiscal": ["fiscal parts by label only", CALENDAR_YEAR_END_MONTH],
         },
         sort_keys=True,
     ).encode()
@@ -316,10 +342,6 @@ def _length(item: Fact | DerivedFact) -> int | None:
     return None if item.period_start is None else (item.period_end - item.period_start).days
 
 
-def _within(days: int | None, bounds: tuple[int, int]) -> bool:
-    return days is not None and bounds[0] <= days <= bounds[1]
-
-
 def _calendar_end(item: Fact | DerivedFact) -> date:
     """The calendar month a period really ends in (2025-10-01 counts as September)."""
     return item.period_end - PERIOD_END_SHIFT if item.period_end.day <= 7 else item.period_end
@@ -353,15 +375,12 @@ def _carries(
     items: Sequence[Item], bounds: tuple[int, int], *, index: int | None, parts: int,
     year: int | None,
 ) -> bool:  # fmt: skip
-    """Some cited fact covers a period of this length, in this quarter or half and year.
-
-    Quarters and halves are calendar ones, judged by where the period ends. A company's
-    own fiscal labels need the XBRL fiscal-period field, which the fact record does not
-    keep yet, so a fiscal "Q1" that ends in December is withheld rather than accepted.
-    """
+    """Some cited fact covers a period of this length, in this calendar quarter or half
+    and year, judged by where the period ends. A company's own fiscal quarters and halves
+    are judged by its fiscal labels instead (:func:`_carries_fiscal`)."""
     months_per_part = 12 // parts
     for item in items:
-        if not isinstance(item, Fact | DerivedFact) or not _within(_length(item), bounds):
+        if not isinstance(item, Fact | DerivedFact) or not within(_length(item), bounds):
             continue
         end = _calendar_end(item)
         if index is not None and (end.month - 1) // months_per_part + 1 != index:
@@ -370,6 +389,56 @@ def _carries(
             continue
         return True
     return False
+
+
+def _fiscal_label(item: Item) -> tuple[int, str] | None:
+    if isinstance(item, Fact) and item.fiscal_year is not None and item.fiscal_period:
+        return item.fiscal_year, item.fiscal_period
+    return None
+
+
+def _carries_fiscal(items: Sequence[Item], labels: set[str], year: int | None) -> bool:
+    """Some cited fact is labelled with one of ``labels``, in fiscal ``year`` if named."""
+    for item in items:
+        label = _fiscal_label(item)
+        if label is not None and label[1] in labels and year in {None, label[0]}:
+            return True
+    return False
+
+
+def _carries_fiscal_year(items: Sequence[Item], year: int) -> bool:
+    """A cited annual fact is fiscal ``year``: by its label, or, for a fact with no label,
+    a year that ends in December of ``year``."""
+    if _carries_fiscal(items, {"FY"}, year):
+        return True
+    for item in items:
+        if _fiscal_label(item) is not None or not isinstance(item, Fact | DerivedFact):
+            continue
+        end = _calendar_end(item)
+        if within(_length(item), YEAR_DAYS) and (end.year, end.month) == (
+            year,
+            CALENDAR_YEAR_END_MONTH,
+        ):
+            return True
+    return False
+
+
+def _fiscal_part(
+    match: re.Match[str], prefix: str, names: Mapping[str, int]
+) -> tuple[set[str], int | None]:
+    """The labels a fiscal quarter or half names, and the fiscal year if one is named."""
+    index, year = None, None
+    for group in match.groups():
+        if group is None:
+            continue
+        if group.isdigit() and len(group) == YEAR_DIGITS:
+            year = int(group)
+        elif group.isdigit():
+            index = int(group)
+        else:
+            index = names[group.lower()]
+    parts = range(1, len(names) + 1) if index is None else (index,)
+    return {f"{prefix}{i}" for i in parts}, year
 
 
 def _named_dates(words: str) -> tuple[list[date], list[str]]:
@@ -404,6 +473,27 @@ def _period_problems(words: str, items: Sequence[Item]) -> list[str]:
         if day not in carried_dates:
             problems.append(f"the period {day.isoformat()} is not carried by a cited item")
     rest = FULL_DATE.sub(" ", words)
+    for pattern, prefix, names, kind in (
+        (FISCAL_QUARTER, "Q", NAMED_QUARTER, "quarterly"),
+        (FISCAL_HALF, "H", NAMED_HALF, "half-year"),
+    ):
+        for m in pattern.finditer(rest):
+            labels, year = _fiscal_part(m, prefix, names)
+            if not _carries_fiscal(items, labels, year):
+                problems.append(
+                    f"the period {m.group(0)!r} is not carried by a cited {kind} fact "
+                    "with that fiscal label"
+                )
+        rest = pattern.sub(" ", rest)
+    if FISCAL_WORDING.search(words):
+        for pattern in (QUARTER, HALF):
+            problems += [
+                f"the period {m.group(0)!r} is named beside fiscal wording, so it is "
+                "ambiguous; name it as a fiscal period (fiscal Q1 2026) or drop the fiscal "
+                "wording"
+                for m in pattern.finditer(rest)
+            ]
+            rest = pattern.sub(" ", rest)
     for m in QUARTER.finditer(rest):
         index, year = _part(m, NAMED_QUARTER)
         if not _carries(items, QUARTER_DAYS, index=index, parts=4, year=year):
@@ -413,7 +503,7 @@ def _period_problems(words: str, items: Sequence[Item]) -> list[str]:
         if not _carries(items, HALF_DAYS, index=index, parts=2, year=year):
             problems.append(f"the period {m.group(0)!r} is not carried by a cited half-year fact")
     for m in FISCAL_YEAR.finditer(rest):
-        if not _carries(items, YEAR_DAYS, index=None, parts=1, year=int(m.group(1))):
+        if not _carries_fiscal_year(items, int(m.group(1))):
             problems.append(f"the period {m.group(0)!r} is not carried by a cited annual fact")
     rest = QUARTER.sub(" ", HALF.sub(" ", FISCAL_YEAR.sub(" ", rest)))
     for m in BARE_YEAR.finditer(rest):

@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS facts (
     period_end     DATE NOT NULL,
     value          DOUBLE NOT NULL,
     {PROVENANCE_DDL},
-    accession      VARCHAR
+    accession      VARCHAR,
+    fiscal_year    INTEGER,
+    fiscal_period  VARCHAR
 );
 CREATE TABLE IF NOT EXISTS text_facts (
     fact_id        VARCHAR PRIMARY KEY,
@@ -77,6 +79,11 @@ CREATE TABLE IF NOT EXISTS derived_facts (
     public_on      DATE NOT NULL
 );
 """
+# Columns added after a table was first made; a store made before them gains them on open.
+MIGRATIONS: Final = """
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS fiscal_year INTEGER;
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS fiscal_period VARCHAR;
+"""
 
 # DuckDB hands rows back untyped; each builder below restores the record's own types.
 Row = tuple[Any, ...]
@@ -111,6 +118,19 @@ def _same_content(stored: Any, incoming: Any) -> bool:
     if hasattr(stored, "fetched_at") and hasattr(incoming, "fetched_at"):
         stored = replace(stored, fetched_at=incoming.fetched_at)
     return bool(stored == incoming)
+
+
+def _adds_fiscal_label(stored: Any, incoming: Any) -> bool:
+    """A fact stored before fiscal labels existed, arriving again with its label.
+
+    The label is filled in; nothing else may differ, and a stored label never changes.
+    """
+    if not isinstance(stored, Fact) or not isinstance(incoming, Fact):
+        return False
+    if stored.fiscal_year is not None or stored.fiscal_period is not None:
+        return False
+    unlabelled = replace(incoming, fiscal_year=None, fiscal_period=None)
+    return _same_content(stored, unlabelled)
 
 
 @dataclass(frozen=True)
@@ -159,6 +179,7 @@ class FactStore:
         self._path = path
         with duckdb.connect(str(path)) as connection:
             connection.execute(SCHEMA)
+            connection.execute(MIGRATIONS)
 
     # --- adding ---
 
@@ -181,9 +202,16 @@ class FactStore:
             ).fetchall()
             stored = {table.key_of(s): s for s in map(table.from_row, rows)}
             for key, item in incoming.items():
-                if key in stored and not _same_content(stored[key], item):
-                    connection.rollback()
-                    raise StoreConflictError(f"{table.name}: {key} is stored with other content")
+                if key not in stored or _same_content(stored[key], item):
+                    continue
+                if _adds_fiscal_label(stored[key], item):
+                    connection.execute(
+                        "UPDATE facts SET fiscal_year = ?, fiscal_period = ? WHERE fact_id = ?",
+                        [item.fiscal_year, item.fiscal_period, key],  # type: ignore[attr-defined]
+                    )
+                    continue
+                connection.rollback()
+                raise StoreConflictError(f"{table.name}: {key} is stored with other content")
             new = [item for key, item in incoming.items() if key not in stored]
             if new:
                 placeholders = ", ".join("?" for _ in table.columns)
