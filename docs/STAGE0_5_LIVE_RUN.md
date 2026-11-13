@@ -6,7 +6,7 @@ This guide describes how to run the Stage 0.5 live gate run.
 
 Stage 0.5 establishes the live record. It captures an on-demand snapshot of market data and freezes numbers-only forecasts into the ledger. Stage 0.5 delivers the core hash-chain ledger; public digests and independent timestamps are Stage 3 (scorecard row 3a).
 
-**Research dossiers are not part of Stage 0.5 yet.** Language models, sourced research dossiers, and research-layer evaluation (scorecard rows 1a–1f, 3b, and 3d) begin in later stages. Stage 0.5 produces only the live record and numbers-only forecasts (models 1, 2, and 4; naive constant volatility, plain volatility model, and raw option-implied).
+**Research dossiers are not part of the Stage 0.5 live run.** Stage 0.5 produces only the live record and numbers-only forecasts (models 1, 2, and 4; naive constant volatility, plain volatility model, and raw option-implied). For Stage 1A SEC ingestion (`foxcast ingest`), no-model point-in-time dossier assembly (`foxcast dossier`), and claim verification (`foxcast check-claims`), see [`STAGE1A.md`](STAGE1A.md). Language-model research step integration and research-layer evaluation (scorecard rows 1a–1f, 3b, and 3d) arrive in Stage 1A.7 and later stages.
 
 ## Prerequisites
 
