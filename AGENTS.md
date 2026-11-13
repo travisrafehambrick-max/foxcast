@@ -2,17 +2,17 @@
 
 foxcast is scorecard-first. Parallel agents use **git worktrees** so each agent has its own directory and branch. Do not write in another agent's checkout.
 
-Naming: `.worktrees/<agent>` (agent name only). Put the topic on the **branch**, e.g. `feat/cursor-…`, `feat/claude-…`.
+Naming: `.worktrees/<agent>` (agent name only). Each agent gets **one branch** in their worktree, named `[agent]-topic` (e.g. `cursor-cli-wiring`, `claude-1a6-dossier`). Change the topic when the lane's work changes; never share a branch across worktrees.
 
 ## Worktrees
 
 | Path | Branch | Owner |
 |------|--------|--------|
 | repo root (`foxcast/`) | `main` | Integration only; short hotfixes OK |
-| `.worktrees/cursor` | `feat/structure-cli-wiring` | Cursor — CLI / docs / structure |
-| `.worktrees/claude-stage1` | `feat/stage1-fiscal-1a6` | Claude Code — Stage 1 claim/dossier lane |
-| `.worktrees/antigravity-scaffold` | `chore/package-skeletons` | Antigravity — Stage 0.5 tests / operator docs |
-| `.worktrees/devin-stage2-stubs` | `feat/devin-stage2-stubs` | Devin — Stage 2 stubs |
+| `.worktrees/cursor` | `cursor-cli-wiring` | Cursor — CLI / docs / structure |
+| `.worktrees/claude-stage1` | `claude-1a6-dossier` | Claude Code — Stage 1 claim/dossier lane |
+| `.worktrees/antigravity-scaffold` | `antigravity-package-skeletons` | Antigravity — Stage 0.5 tests / operator docs |
+| `.worktrees/devin-stage2-stubs` | `devin-stage2-stubs` | Devin — Stage 2 stubs |
 
 `.worktrees/` is gitignored. One branch per worktree; never check out the same branch in two places.
 
@@ -43,7 +43,7 @@ Shared lock files (`pyproject.toml`, `uv.lock`, `SCORECARD.md`, `scorecard.toml`
 - Fiscal-period labels + archive guard on `main` (PR #2).
 - Stage 0.5 test hardening on `main` (PR #1).
 - `foxcast ingest` uses `settings.archive_dir` via `SourceArchive.outside_git` (not under the data repo).
-- **Next Claude:** Stage **1A.6** dossier builder in a fresh session on `.worktrees/claude-stage1` (new branch off `main`, e.g. `feat/claude-1a6-dossier`). 10-K section splitting waits on `edgartools` until **2026-11-16**.
+- **Next Claude:** Stage **1A.6** dossier builder in a fresh session on `.worktrees/claude-stage1` (branch `claude-1a6-dossier`, already off `main`). 10-K section splitting waits on `edgartools` until **2026-11-16**.
 
 ## Honesty reminders
 
