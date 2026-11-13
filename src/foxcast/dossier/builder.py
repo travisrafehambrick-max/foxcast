@@ -108,7 +108,7 @@ class ModelDeclaration:
 
 @dataclass(frozen=True)
 class RunCost:
-    """The tool server's cost meter (row 4c), built in Stage 1A.7."""
+    """The tool server's cost meter (row 4c): the calls before the render call."""
 
     tool_calls: int
     result_bytes: int
@@ -147,9 +147,13 @@ def shown_reason(reason: str) -> str:
     return NAMED_PERIOD.sub("a period named in the claim is", QUOTED.sub(FROM_CLAIM, reason))
 
 
-def _review(
+def review_claims(
     claims: Sequence[SubmittedClaim], view: FactView
 ) -> list[RenderedClaim | WithheldClaim]:
+    """Render each claim, or withhold it; a claim outside the claim sections is withheld.
+
+    The tool server calls this too, so the verdicts it returns are the dossier's own.
+    """
     reviewed: list[RenderedClaim | WithheldClaim] = []
     for claim in claims:
         if claim.section not in CLAIM_TARGETS:
@@ -245,7 +249,7 @@ def _header(request: DossierRequest, store: FactStore) -> Section:
                 f"{cost.tool_calls} tool calls, {cost.result_bytes} result bytes, "
                 f"{cost.wall_seconds:.1f} seconds"
                 if cost
-                else "unavailable: the tool server's cost meter is built in Stage 1A.7"
+                else "unavailable: built without the tool server, which meters a run"
             ),
         ),
         Line("Operator's holding", Cell(f"{request.holding} (the operator's own declaration)")),
@@ -412,7 +416,7 @@ def build_dossier(
         context = CheckContext(
             view=view, archive=archive, subject_cik=request.cik, companies=dict(companies or {})
         )
-        check = check_dossier(_review(claims, view), context)
+        check = check_dossier(review_claims(claims, view), context)
     by = _Claims(ran=claims is not None, check=check)
     annual = content.annual_figures(store, cik=request.cik, as_of=request.as_of)
     trades = content.form4_trades(store, cik=request.cik, as_of=request.as_of)
