@@ -144,7 +144,11 @@ def ingest(
     data = settings.data_dir
     data.mkdir(parents=True, exist_ok=True)
     store = FactStore(data / "facts.duckdb")
-    archive = SourceArchive(data / "sources")
+    try:
+        archive = SourceArchive.outside_git(settings.archive_dir)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
 
     with httpx.Client() as client:
         try:

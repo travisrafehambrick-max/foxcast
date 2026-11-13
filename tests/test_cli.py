@@ -96,12 +96,19 @@ def test_ingest_refuses_missing_sec_contact(
 
 @pytest.mark.unit
 def test_ingest_calls_library_with_cik(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ingest opens SourceArchive.outside_git(settings.archive_dir), not data/sources."""
+    from foxcast.store import archive as archive_module
+
     config = tmp_path / "foxcast.toml"
     data = tmp_path / "data"
-    config.write_text(f'data_dir = "{data.as_posix()}"\n')
+    archive_dir = tmp_path / "archive"
+    config.write_text(f'data_dir = "{data.as_posix()}"\narchive_dir = "{archive_dir.as_posix()}"\n')
     monkeypatch.setenv("FOXCAST_SEC_CONTACT", "Jane Doe jane@example.com")
+    # pytest basetemp sits inside this repo; stand in for a folder outside git.
+    monkeypatch.setattr(archive_module, "git_work_tree_of", lambda _: None)
 
     calls: list[tuple[int, date]] = []
+    archives: list[object] = []
 
     def fake_ingest(
         cik: int,
@@ -114,6 +121,7 @@ def test_ingest_calls_library_with_cik(tmp_path: Path, monkeypatch: pytest.Monke
         **_: object,
     ) -> IngestReport:
         calls.append((cik, as_of))
+        archives.append(archive)
         assert contact == "Jane Doe jane@example.com"
         assert store is not None and archive is not None
         return IngestReport(
@@ -147,3 +155,26 @@ def test_ingest_calls_library_with_cik(tmp_path: Path, monkeypatch: pytest.Monke
     assert "3 passages" in result.output
     assert "unavailable: XBRL NetIncomeLoss: 404" in result.output
     assert (data / "facts.duckdb").exists()
+    assert archives and archives[0]._directory == archive_dir
+    assert not (data / "sources").exists()
+
+
+@pytest.mark.unit
+def test_ingest_refuses_archive_inside_a_git_data_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ingest must fail when archive_dir is under a git work tree (e.g. data/sources)."""
+    config = tmp_path / "foxcast.toml"
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / ".git").mkdir()
+    config.write_text(
+        f'data_dir = "{data.as_posix()}"\narchive_dir = "{(data / "sources").as_posix()}"\n'
+    )
+    monkeypatch.setenv("FOXCAST_SEC_CONTACT", "Jane Doe jane@example.com")
+    result = runner.invoke(
+        cli_app.app,
+        ["ingest", "GOOGL", "--as-of", "2026-11-11", "--cik", "1", "--config", str(config)],
+    )
+    assert result.exit_code == 1
+    assert "git" in result.output.lower()
