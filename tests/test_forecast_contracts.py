@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from foxcast.benchmark.iv_benchmark import forecast_iv_benchmark
 from foxcast.benchmark.option_implied import forecast_option_implied
 from foxcast.sim.event_aware import forecast_event_aware
 from foxcast.sim.naive import forecast_naive
@@ -57,3 +58,14 @@ def test_event_aware_satisfies_the_forecast_contract() -> None:
         garch_log_returns(), events, forecast_day=date(2026, 11, 14), horizon=21, seed=SEED
     )
     check_forecast_contract(result, forecast_id="event_aware", horizon=21)
+
+
+@pytest.mark.unit
+def test_iv_benchmark_satisfies_the_forecast_contract() -> None:
+    valuation = date(2026, 11, 11)
+    expiry = valuation + timedelta(days=30)
+    chain = black_scholes_chain(100.0, 0.30, valuation, expiry)
+    result = forecast_iv_benchmark(
+        chain, spot=100.0, valuation=valuation, horizon_date=expiry, horizon_days=21
+    )
+    check_forecast_contract(result, forecast_id="iv_benchmark", horizon=21)
