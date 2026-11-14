@@ -1,0 +1,19 @@
+{
+  "extraKnownMarketplaces": {
+    "claude-code-workflows": {
+      "source": {
+        "source": "github",
+        "repo": "wshobson/agents"
+      }
+    },
+    "ecc": {
+      "source": {
+        "source": "github",
+        "repo": "affaan-m/ECC"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "quantitative-trading@claude-code-workflows": true
+  }
+}
