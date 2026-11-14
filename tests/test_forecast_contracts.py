@@ -5,6 +5,7 @@ plain-``str`` reason it is unavailable. These tests pin that contract against th
 forecasts already built and, as later stages land, against each new one.
 """
 
+from collections.abc import Sequence
 from datetime import date, timedelta
 
 import numpy as np
@@ -12,6 +13,7 @@ import pandas as pd
 import pytest
 
 from foxcast.benchmark.iv_benchmark import forecast_iv_benchmark
+from foxcast.benchmark.option_corrected import forecast_option_corrected
 from foxcast.benchmark.option_implied import forecast_option_implied
 from foxcast.sim.event_aware import forecast_event_aware
 from foxcast.sim.naive import forecast_naive
@@ -21,6 +23,11 @@ from .forecast_contract import check_forecast_contract
 from .test_forecasts import black_scholes_chain, garch_log_returns
 
 SEED = 20261111
+
+
+class _IdentityCorrection:
+    def adjust(self, values: Sequence[float], levels: Sequence[float]) -> tuple[float, ...]:
+        return tuple(values)
 
 
 @pytest.mark.unit
@@ -69,3 +76,19 @@ def test_iv_benchmark_satisfies_the_forecast_contract() -> None:
         chain, spot=100.0, valuation=valuation, horizon_date=expiry, horizon_days=21
     )
     check_forecast_contract(result, forecast_id="iv_benchmark", horizon=21)
+
+
+@pytest.mark.unit
+def test_option_corrected_satisfies_the_forecast_contract() -> None:
+    valuation = date(2026, 11, 11)
+    expiry = valuation + timedelta(days=30)
+    chain = black_scholes_chain(100.0, 0.30, valuation, expiry)
+    result = forecast_option_corrected(
+        chain,
+        spot=100.0,
+        valuation=valuation,
+        horizon_date=expiry,
+        correction=_IdentityCorrection(),
+        horizon_days=21,
+    )
+    check_forecast_contract(result, forecast_id="option_corrected", horizon=21)
