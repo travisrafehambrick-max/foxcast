@@ -8,9 +8,11 @@ forecasts already built and, as later stages land, against each new one.
 from datetime import date, timedelta
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from foxcast.benchmark.option_implied import forecast_option_implied
+from foxcast.sim.event_aware import forecast_event_aware
 from foxcast.sim.naive import forecast_naive
 from foxcast.sim.plain_vol import forecast_plain_vol
 
@@ -46,3 +48,12 @@ def test_option_raw_satisfies_the_forecast_contract() -> None:
         chain, spot=100.0, valuation=valuation, horizon_date=expiry, horizon_days=21
     )
     check_forecast_contract(result, forecast_id="option_raw", horizon=21)
+
+
+@pytest.mark.unit
+def test_event_aware_satisfies_the_forecast_contract() -> None:
+    events = pd.DataFrame({"event_date": [date(2026, 12, 1)], "kind": ["earnings"]})
+    result = forecast_event_aware(
+        garch_log_returns(), events, forecast_day=date(2026, 11, 14), horizon=21, seed=SEED
+    )
+    check_forecast_contract(result, forecast_id="event_aware", horizon=21)
