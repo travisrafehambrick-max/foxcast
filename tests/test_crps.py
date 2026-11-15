@@ -5,7 +5,14 @@ import math
 import pytest
 from scipy.stats import norm
 
-from foxcast.scoring.crps import crps_from_quantiles, tail_crps_from_quantiles
+from foxcast.scoring.crps import (
+    ScoredForecast,
+    crps_from_quantiles,
+    mean_skill,
+    scaled_crps_skill,
+    skill_summary,
+    tail_crps_from_quantiles,
+)
 from foxcast.sim.grid import QUANTILE_LEVELS
 
 
@@ -76,3 +83,79 @@ def test_tail_crps_only_counts_the_outer_bands() -> None:
     assert tail_crps_from_quantiles(
         base, QUANTILE_LEVELS, 0.0, tail=0.05
     ) != tail_crps_from_quantiles(base, QUANTILE_LEVELS, 0.0, tail=0.1)
+
+
+@pytest.mark.unit
+def test_scaled_skill_is_one_minus_the_crps_ratio() -> None:
+    assert scaled_crps_skill(0.5, 1.0) == pytest.approx(0.5)
+    assert scaled_crps_skill(1.0, 1.0) == pytest.approx(0.0)
+    assert scaled_crps_skill(1.5, 1.0) == pytest.approx(-0.5)
+
+
+@pytest.mark.unit
+def test_scaled_skill_is_nan_when_the_baseline_is_zero() -> None:
+    assert math.isnan(scaled_crps_skill(0.5, 0.0))
+    assert math.isnan(mean_skill([]))
+    assert mean_skill([0.5, math.nan, -0.5]) == pytest.approx(0.0)
+
+
+def _scores() -> list[ScoredForecast]:
+    out = []
+    for day_i, day in enumerate(("2024-01-02", "2024-02-01", "2024-03-01")):
+        for tick_i, ticker in enumerate(("AAA", "BBB", "CCC")):
+            base = 0.01 + 0.005 * tick_i + 0.002 * day_i
+            out.append(
+                ScoredForecast(day=day, ticker=ticker, model_crps=base / 2.0, baseline_crps=base)
+            )
+    return out
+
+
+@pytest.mark.unit
+def test_skill_summary_reports_a_clear_beat() -> None:
+    s = skill_summary(_scores(), seed=7, replicates=500)
+    assert s.skill == pytest.approx(0.5)
+    assert s.ci_low > 0.0 and s.ci_high <= 1.0
+    assert s.n_obs == 9 and s.n_dates == 3
+    assert s.mean_baseline_crps == pytest.approx(2.0 * s.mean_model_crps)
+
+
+@pytest.mark.unit
+def test_skill_summary_is_reproducible_for_a_given_seed() -> None:
+    a = skill_summary(_scores(), seed=99, replicates=200)
+    b = skill_summary(_scores(), seed=99, replicates=200)
+    assert a == b
+
+
+@pytest.mark.unit
+def test_skill_summary_resamples_whole_dates() -> None:
+    # Days disagree about the skill (+80%, 0%, -40%), so resampling dates
+    # produces a real interval around the pooled mean.
+    scores = [
+        ScoredForecast(day=d, ticker=t, model_crps=m, baseline_crps=1.0)
+        for d, m in (("2024-01-02", 0.2), ("2024-02-01", 1.0), ("2024-03-01", 1.4))
+        for t in ("AAA", "BBB")
+    ]
+    s = skill_summary(scores, seed=11, replicates=500)
+    assert s.skill == pytest.approx(1.0 - (0.2 + 1.0 + 1.4) / 3.0)
+    assert s.ci_low < s.skill < s.ci_high
+
+
+@pytest.mark.unit
+def test_skill_summary_with_one_date_cannot_see_variation() -> None:
+    # One resample unit means every replicate pools the same observations:
+    # the interval degenerates to the point estimate. n_dates reports the
+    # effective sample so the harness can label the low-power case.
+    scores = [
+        ScoredForecast(day="2024-01-02", ticker=t, model_crps=m, baseline_crps=1.0)
+        for t, m in (("AAA", 0.4), ("BBB", 0.6), ("CCC", 0.8))
+    ]
+    s = skill_summary(scores, seed=5, replicates=100)
+    assert s.n_dates == 1
+    assert s.ci_low == pytest.approx(s.skill)
+    assert s.ci_high == pytest.approx(s.skill)
+
+
+@pytest.mark.unit
+def test_skill_summary_rejects_empty_input() -> None:
+    with pytest.raises(ValueError):
+        skill_summary([], seed=1)
