@@ -6,6 +6,7 @@ forecasts already built and, as later stages land, against each new one.
 """
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import date, timedelta
 
 import numpy as np
@@ -15,6 +16,7 @@ import pytest
 from foxcast.benchmark.iv_benchmark import forecast_iv_benchmark
 from foxcast.benchmark.option_corrected import forecast_option_corrected
 from foxcast.benchmark.option_implied import forecast_option_implied
+from foxcast.sim.blend import forecast_blend
 from foxcast.sim.event_aware import forecast_event_aware
 from foxcast.sim.naive import forecast_naive
 from foxcast.sim.plain_vol import forecast_plain_vol
@@ -92,3 +94,23 @@ def test_option_corrected_satisfies_the_forecast_contract() -> None:
         horizon_days=21,
     )
     check_forecast_contract(result, forecast_id="option_corrected", horizon=21)
+
+
+@pytest.mark.unit
+def test_blend_satisfies_the_forecast_contract() -> None:
+    history_fc = replace(
+        forecast_naive(np.random.default_rng(1).normal(0.0, 0.02, size=2000), horizon=5, seed=SEED),
+        forecast_id="event_aware",
+    )
+    # Fallback path: a QuantileForecast relabelled "blend" on the grid.
+    check_forecast_contract(
+        forecast_blend(history_fc, "no option expiry", horizon_days=5),
+        forecast_id="blend",
+        horizon=5,
+    )
+    # Combined path: still a stub, so the reason string must satisfy the contract.
+    check_forecast_contract(
+        forecast_blend(history_fc, history_fc, horizon_days=21),
+        forecast_id="blend",
+        horizon=21,
+    )
