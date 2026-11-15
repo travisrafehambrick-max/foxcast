@@ -2,18 +2,18 @@
 
 One entry per forecast in the family, plus the named benchmark. This follows the model-risk practice of keeping an inventory with each model's purpose, assumptions, limits, adjustments, evidence and monitoring (brief change AH; PRA SS1/23 principles 1 and 4). An entry is updated whenever the model changes, and the evidence column points only at scorecard rows, never at a notebook (honesty rule 11).
 
-Status values: **not built**, **built, not validated**, **validated** (its scorecard rows pass), **retired**.
+Status values: **not built**, **stubbed**, **built, not validated**, **validated** (its scorecard rows pass), **retired**.
 
 | # | Forecast | Status | Stage |
 |---|---|---|---|
 | 1 | Naive (constant volatility) | built, not validated | 0.5 |
 | 2 | Plain volatility model | built, not validated | 0.5 |
-| 3 | Event-aware | not built | 2 |
+| 3 | Event-aware | stubbed | 2 |
 | 4 | Option-implied, raw | built, not validated | 0.5 |
-| 5 | Option-implied, corrected | not built | 2 |
-| 6 | Blend (the headline) | not built | 2 |
+| 5 | Option-implied, corrected | stubbed | 2 |
+| 6 | Blend (the headline) | stubbed | 2 |
 | 7 | Event-aware plus research | not built | 3 |
-| B | Simple implied-volatility benchmark | not built | 2 |
+| B | Simple implied-volatility benchmark | stubbed | 2 |
 
 ---
 
