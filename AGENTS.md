@@ -23,9 +23,9 @@ Each task gets a **new** branch `[agent]-[topic]` cut from green `origin/main` (
 | Lane | Owns | Does not touch |
 |------|------|----------------|
 | **Claude Code** | `claims/*`, `sec_ingest.py`, dossier assembly / section schema (row 1d), fiscal-period / gate runners, Stage 1A.6+ | Bulk rewrites of `cli/app.py`, `sim/*`, inventing scorecard pass lines |
-| **Cursor** | CLI wiring (`ingest`, `dossier`, `check-claims`, doctor), `llm/` + `mcp/` interfaces, `docs/MODELS.md` accuracy, this file | Rewriting `checker.py` / `planted.py` / numbers rule |
+| **Cursor** | CLI wiring (`ingest`, `dossier`, `check-claims`, doctor), `llm/` + `mcp/` interfaces, `docs/MODELS.md` accuracy | Rewriting `checker.py` / `planted.py` / numbers rule |
 | **Antigravity** (optional) | Boilerplate, operator docs, Stage 0.5 test hardening | Scorecard, ledger, claims truth path |
-| **Devin** | Stage 2 sim stubs + contract tests | `claims/*`, dossier assembly, scorecard pass lines |
+| **Devin** | Stage 2 sim stubs + contract tests, this file | `claims/*`, dossier assembly, scorecard pass lines |
 | **Travis** | Merge to `main`, scorecard wording, ship / don't ship | — |
 
 Shared lock files (`pyproject.toml`, `uv.lock`, `SCORECARD.md`, `scorecard.toml`): **one owner per PR**; others rebase onto `main` before continuing.
@@ -51,16 +51,13 @@ Shared lock files (`pyproject.toml`, `uv.lock`, `SCORECARD.md`, `scorecard.toml`
 - Check out the same branch in two worktrees.
 - Leave merged topic remotes hanging; delete them after merge.
 
-## Stage 1A status (as of 2026-11-13)
+## Status (as of 2026-11-15)
 
-- **1A.1–1A.5** on `main`.
-- **1A.6** dossier builder on `main` (PR #3).
-- Fiscal-period labels + archive guard on `main` (PR #2).
-- Stage 0.5 test hardening on `main` (PR #1).
-- `foxcast ingest` uses `settings.archive_dir` via `SourceArchive.outside_git` (not under the data repo).
-- `foxcast dossier` wires `build_dossier` / `write_dossier` (no-model path; research claims in 1A.7) (PR #4).
-- `foxcast check-claims` wires review + `check_dossier` against the local fact store (CLI only; no checker rewrite).
-- **Next:** Stage **1A.7** MCP tool server + cost meter. 10-K section splitting waits on `edgartools` until **2026-11-16**.
+**Stage 1A complete.** 1A.1–1A.7 on `main`: claims/checker/numbers-rule hardening (PR #1), fiscal-period labels + archive guard (PR #2), dossier builder (PR #3), `dossier` CLI wiring (PR #4), `check-claims` CLI (PR #7), locked-down MCP tool server + cost meter + call-log replay (PR #8), operator guide (PR #9). `foxcast ingest` uses `settings.archive_dir` via `SourceArchive.outside_git` (not under the data repo).
+
+**Stage 2 started.** Quantile grid + forecasts 1 (naive), 2 (plain vol), 4 (option raw) built at Stage 0.5; contract tests + honest stubs for forecasts 3, 5, 6 and B on `main` (PR #11). Still "not built": `event_aware` (needs an event calendar), `option_corrected` (needs a bias-correction fitter + chain history), blend combination method (awaits proving experiment 5), CRPS scoring, walk-forward harness, lookahead tests (row 2d).
+
+- **Next:** Stage 2 scoring + harness groundwork; 10-K section splitting unblocks with `edgartools` on **2026-11-16**.
 
 ## Honesty reminders
 
