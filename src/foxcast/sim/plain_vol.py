@@ -49,8 +49,16 @@ def forecast_plain_vol(
     seed: int,
     paths: int = DEFAULT_PATHS,
     fitted: ARCHModelResult | None = None,
-) -> QuantileForecast:
-    result = fitted if fitted is not None else fit_plain_vol(log_returns)
+) -> QuantileForecast | str:
+    """The plain-volatility forecast, or the reason it is unavailable."""
+    if fitted is None:
+        if len(log_returns) < MIN_HISTORY_DAYS:
+            return f"need at least {MIN_HISTORY_DAYS} days of history, got {len(log_returns)}"
+        result = fit_plain_vol(log_returns)
+    else:
+        result = fitted
+    if result.convergence_flag != 0:
+        return "volatility model fit did not converge"
     forecast = result.forecast(
         horizon=horizon,
         method="bootstrap",
@@ -69,10 +77,8 @@ def forecast_plain_vol(
     realised = float(np.var(np.asarray(log_returns, dtype=float), ddof=1))
     implied = float(np.mean(result.conditional_volatility**2)) / PERCENT**2
     ratio = implied / realised
-    if result.convergence_flag != 0:
-        raise ValueError("volatility model fit did not converge")
     if not FIT_CHECK_BAND[0] <= ratio <= FIT_CHECK_BAND[1]:
-        raise ValueError(f"fit check failed: implied/realised variance ratio {ratio:.2f}")
+        return f"fit check failed: implied/realised variance ratio {ratio:.2f}"
     return QuantileForecast(
         forecast_id="plain_vol",
         horizon_days=horizon,

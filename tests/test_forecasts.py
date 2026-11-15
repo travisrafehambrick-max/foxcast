@@ -73,8 +73,9 @@ def test_forecasts_are_reproducible_from_the_seed() -> None:
 
 @pytest.mark.unit
 def test_naive_needs_enough_history() -> None:
-    with pytest.raises(ValueError, match="history"):
-        forecast_naive(np.zeros(10), horizon=5, seed=1)
+    result = forecast_naive(np.zeros(10), horizon=5, seed=1)
+    assert isinstance(result, str)
+    assert "history" in result
 
 
 @pytest.mark.unit

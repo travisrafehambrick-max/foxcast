@@ -18,11 +18,11 @@ from datetime import date
 from pathlib import Path
 
 from foxcast.config import default_config_path, load_settings
-from foxcast.daily import code_version
 from foxcast.mcp.inputs import TICKER_PATTERN
 from foxcast.mcp.room import write_room
 from foxcast.mcp.server import Pins, open_server
 from foxcast.mcp.stdio import serve_stdio
+from foxcast.provenance import code_version
 from foxcast.store.archive import SourceArchive
 
 TICKER = re.compile(TICKER_PATTERN)

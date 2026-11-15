@@ -417,10 +417,10 @@ def dossier(
     """
     from datetime import UTC, date, datetime
 
-    from foxcast.daily import code_version
     from foxcast.dossier.builder import DossierRequest, build_dossier
     from foxcast.dossier.output import UnverifiedClaimError, write_dossier
     from foxcast.dossier.schema import Holding, SilentGapError, Status
+    from foxcast.provenance import code_version
     from foxcast.store.archive import SourceArchive
     from foxcast.store.pit import FactStore
     from foxcast.watchlist import validate_ticker

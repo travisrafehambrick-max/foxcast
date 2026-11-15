@@ -8,12 +8,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from foxcast.daily import completed_session_returns, run_daily_forecasts
+from foxcast.daily import run_daily_forecasts
 from foxcast.ledger.chain import Ledger
 from foxcast.sim.grid import QUANTILE_LEVELS
 from foxcast.sim.naive import forecast_naive
 from foxcast.sim.plain_vol import forecast_plain_vol
-from foxcast.snapshot import run_snapshot
+from foxcast.snapshot import completed_session_returns, run_snapshot
 from foxcast.store.archive import SourceArchive
 from foxcast.watchlist import draw_watchlist, validate_ticker
 from tests.test_forecasts import garch_log_returns
@@ -136,12 +136,13 @@ def test_naive_and_plain_vol_have_zero_expected_simple_return() -> None:
         assert abs(mean) < 0.004, fc.forecast_id
 
 
-# 9: a fit that fails its check is not frozen.
+# 9: a fit that fails its check is not frozen — it reports the reason and the ratio.
 @pytest.mark.unit
 def test_plain_vol_rejects_a_fit_that_fails_its_check(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("foxcast.sim.plain_vol.FIT_CHECK_BAND", (10.0, 20.0))
-    with pytest.raises(ValueError, match="fit check failed"):
-        forecast_plain_vol(garch_log_returns(), horizon=5, seed=1)
+    result = forecast_plain_vol(garch_log_returns(), horizon=5, seed=1)
+    assert isinstance(result, str)
+    assert "fit check failed" in result
 
 
 # 10: a degenerate option fit becomes a reason, never a crash.
