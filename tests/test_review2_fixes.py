@@ -91,6 +91,9 @@ def test_rerun_with_changed_code_version_is_skipped_not_fatal(
     ledger = Ledger(tmp_path / "ledger.jsonl")
     monkeypatch.setattr("foxcast.daily.code_version", lambda project: "commit-one")
     first = run_daily_forecasts(["ABC"], tmp_path, ledger, day="2026-11-11", project=tmp_path)
+    assert len(first.frozen) == 5
+    assert "2026-11-11:ABC:option_raw:21" in first.frozen
+    assert first.skipped == ()
     monkeypatch.setattr("foxcast.daily.code_version", lambda project: "commit-two")
     second = run_daily_forecasts(["ABC"], tmp_path, ledger, day="2026-11-11", project=tmp_path)
     assert second.frozen == ()
