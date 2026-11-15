@@ -14,8 +14,9 @@ from scipy.stats import norm
 from typer.testing import CliRunner
 
 from foxcast.cli import app as cli_app
-from foxcast.daily import code_version, horizon_date, run_daily_forecasts, seed_for
+from foxcast.daily import horizon_date, request_id, run_daily_forecasts, seed_for
 from foxcast.ledger.chain import Ledger
+from foxcast.provenance import code_version
 from foxcast.snapshot import MarketClosedError, market_is_open, run_snapshot
 from foxcast.sources.base import Unavailable
 from foxcast.sources.yahoo import (
@@ -344,8 +345,9 @@ def test_horizon_date_counts_trading_days() -> None:
 
 @pytest.mark.unit
 def test_seeds_differ_across_tickers_and_repeat_for_the_same_request() -> None:
-    assert seed_for("2026-11-11", "ABC", "naive", 21) == seed_for("2026-11-11", "ABC", "naive", 21)
-    assert seed_for("2026-11-11", "ABC", "naive", 21) != seed_for("2026-11-11", "XYZ", "naive", 21)
+    abc = request_id("2026-11-11", "ABC", "naive", 21)
+    assert seed_for(abc) == seed_for(abc)
+    assert seed_for(abc) != seed_for(request_id("2026-11-11", "XYZ", "naive", 21))
 
 
 @pytest.mark.unit
@@ -385,7 +387,7 @@ def test_code_version_reports_dirty_or_falls_back_without_git(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "foxcast.daily._git",
+        "foxcast.provenance._git",
         lambda project, *args: "deadbeef" if args == ("rev-parse", "HEAD") else " M file.py",
     )
     assert code_version(tmp_path) == "deadbeef+dirty"
@@ -393,7 +395,7 @@ def test_code_version_reports_dirty_or_falls_back_without_git(
     def no_git(project: Path, *args: str) -> str:
         raise OSError("git not installed")
 
-    monkeypatch.setattr("foxcast.daily._git", no_git)
+    monkeypatch.setattr("foxcast.provenance._git", no_git)
     assert code_version(tmp_path).startswith("package ")
     assert "git unknown" in code_version(tmp_path)
 
@@ -425,4 +427,4 @@ def test_daily_forecasts_skip_short_history_and_missing_or_distant_chains(tmp_pa
     run_snapshot(["FAR"], tmp_path, now=lambda: OPEN, fetchers=distant_chain)
     far_result = run_daily_forecasts(["FAR"], tmp_path, ledger, day="2026-11-11", project=tmp_path)
     assert far_result.frozen == ()
-    assert any("FAR option_raw: no option expiry" in reason for reason in far_result.skipped)
+    assert any("FAR option_raw 21d: no option expiry" in reason for reason in far_result.skipped)
