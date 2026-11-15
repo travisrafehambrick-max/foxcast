@@ -6,7 +6,8 @@ built on one frozen as-of date, chosen before its first dossier is built and rec
 the run. :func:`run_gate` builds every dossier of a set on the no-model path (no research
 step runs), writes them into one folder, and writes the run record beside them: the as-of
 date, the build time, the seeds, the code version and the SHA-256 of every file written.
-Once the run record exists the set is frozen, and the runner refuses to build it again.
+The set is built in a staging folder and moved into place only once its run record is
+written; from then on it is frozen, and the runner refuses to build it again.
 
 Everything is checked before the first dossier is built: each ticker has its own CIK and
 something in the record as of the date, the date is not after the build, and the code is a
@@ -16,6 +17,7 @@ clean commit. :func:`verify_gate_run` re-hashes a frozen set against its run rec
 import hashlib
 import json
 import re
+import shutil
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -35,6 +37,7 @@ from foxcast.watchlist import validate_ticker
 
 SCHEMA: Final = "foxcast.gate_run/1"
 RUN_RECORD: Final = "run.json"
+STAGING_SUFFIX: Final = ".partial"
 CLEAN_COMMIT: Final = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 RESEARCH_STEP: Final = "none: every dossier is built without a model (the no-model path)"
 SET_NAMES: Final = {"gate": "gate-1a", "audit": "audit-1e"}
@@ -148,8 +151,8 @@ def _has_record(store: FactStore, cik: int, as_of: date) -> bool:
 
 
 def _preflight(request: GateRequest, store: FactStore, folder: Path) -> dict[str, int]:
-    if (folder / RUN_RECORD).exists():
-        raise GateRunError(f"{folder.name} is frozen: its run record exists; it is never rebuilt")
+    if folder.exists():
+        raise GateRunError(f"{folder.name} is frozen: the set exists; it is never rebuilt")
     if request.as_of > request.built_at.date():
         raise GateRunError(
             f"the as-of date {request.as_of} is after the build date {request.built_at.date()}"
@@ -194,7 +197,7 @@ def _build_one(
     try:
         dossier = build_dossier(dossier_request, store, archive)
         md_path, json_path = write_dossier(dossier, folder)
-    except (SilentGapError, UnverifiedClaimError, ValueError) as error:
+    except (SilentGapError, UnverifiedClaimError, ValueError, OSError) as error:
         raise GateRunError(f"{ticker}'s dossier could not be built: {error}") from error
     return _entry(dossier, md_path, json_path)
 
@@ -250,37 +253,63 @@ def _record(request: GateRequest, entries: list[dict[str, Any]]) -> dict[str, An
 def run_gate(request: GateRequest, store: FactStore, archive: SourceArchive, out: Path) -> GateRun:
     """Build and freeze the set's dossiers in ``out/<set>-<as of>``; write its run record.
 
-    The dossiers are written first and the run record last, so a run that stops part way
-    leaves no record and can be started again; a set with a record is frozen.
+    Everything is built in a fresh staging folder (``<set>-<as of>.partial``) and the run
+    record is written last; only then is the folder renamed into place. A run that stops
+    part way leaves only the staging folder, which the next run clears, so a frozen set
+    never holds a file from another run. A set whose folder exists is frozen.
     """
     folder = out / f"{request.ticker_set.name}-{request.as_of.isoformat()}"
     ciks = _preflight(request, store, folder)
-    folder.mkdir(parents=True, exist_ok=True)
+    staging = folder.with_name(folder.name + STAGING_SUFFIX)
+    if staging.exists():
+        shutil.rmtree(staging)  # only ever this runner's own unfinished build
+    staging.mkdir(parents=True)
     entries = [
-        _build_one(request, ticker, ciks[ticker], store, archive, folder)
+        _build_one(request, ticker, ciks[ticker], store, archive, staging)
         for ticker in request.ticker_set.tickers
     ]
     record = _record(request, entries)
-    write_json_atomic(folder / RUN_RECORD, record)
+    write_json_atomic(staging / RUN_RECORD, record)
+    staging.rename(folder)
     return GateRun(folder=folder, dossiers_sha256=record["dossiers_sha256"])
 
 
+def _record_problems(folder: Path, record: dict[str, Any]) -> list[str]:
+    """Where the run record disagrees with itself or with its folder's name."""
+    problems = []
+    if folder.name != f"{record['set']}-{record['as_of']}":
+        problems.append(f"the folder name does not match the set and as-of date in {RUN_RECORD}")
+    if [e["ticker"] for e in record["dossiers"]] != record["tickers"]:
+        problems.append(f"the dossiers in {RUN_RECORD} are not its tickers, in order")
+    if _digest(record["dossiers"]) != record["dossiers_sha256"]:
+        problems.append(f"the dossier list in {RUN_RECORD} does not match its recorded hash")
+    return problems
+
+
 def verify_gate_run(folder: Path) -> list[str]:
-    """Each problem with a frozen set: a dossier missing or not matching its recorded hash."""
+    """Each problem with a frozen set: a dossier missing, changed or not in the record."""
     path = folder / RUN_RECORD
     if not path.exists():
         return [f"no {RUN_RECORD} in {folder}"]
     record = json.loads(path.read_text(encoding="utf-8"))
-    problems = []
-    if _digest(record["dossiers"]) != record["dossiers_sha256"]:
-        problems.append(f"the dossier list in {RUN_RECORD} does not match its recorded hash")
+    problems = _record_problems(folder, record)
+    recorded = {RUN_RECORD}
     for entry in record["dossiers"]:
-        for kind in ("markdown", "json"):
+        stem = f"{entry['ticker']}-{record['as_of']}"
+        for kind, suffix in (("markdown", ".md"), ("json", ".json")):
             name = entry[f"{kind}_file"]
-            if not (folder / name).exists():
+            recorded.add(name)
+            if name != stem + suffix:
+                problems.append(f"{name} is not the file name for {entry['ticker']}")
+            elif not (folder / name).exists():
                 problems.append(f"{name} is missing")
             elif _sha256_file(folder / name) != entry[f"{kind}_sha256"]:
                 problems.append(f"{name} does not match its recorded hash")
+    problems += [
+        f"{p.name} is not in {RUN_RECORD}"
+        for p in sorted(folder.iterdir())
+        if p.name not in recorded
+    ]
     return problems
 
 

@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from foxcast import __version__
+from foxcast import __version__, gate
 from foxcast.claims.checker import WORDS_CHECK_VERSION
+from foxcast.dossier.builder import DossierRequest
 from foxcast.gate import (
     RUN_RECORD,
     SCHEMA,
@@ -63,7 +64,7 @@ def gate_request(ticker_set: TickerSet, **changes: object) -> GateRequest:
         "code_commit": COMMIT,
     }
     values.update(changes)
-    return GateRequest(**values)  # type: ignore[arg-type]
+    return GateRequest(**values)
 
 
 def sha256_of(path: Path) -> str:
@@ -248,7 +249,77 @@ def test_unclean_code_can_be_allowed_and_is_recorded(world: World, tmp_path: Pat
     assert record["code"]["commit"] == f"{COMMIT}+dirty"
 
 
+@pytest.mark.unit
+def test_a_run_that_fails_part_way_leaves_no_set_and_can_be_run_again(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, archive = world
+    ticker_set = small_set(tmp_path, ["GOOGL", "GOOG"])
+    request = gate_request(ticker_set, companies={"GOOGL": GOOGL, "GOOG": 1})
+    monkeypatch.setattr(gate, "_has_record", lambda *_: True)
+    real_build = gate.build_dossier
+
+    def build(dossier_request: DossierRequest, *args: object) -> object:
+        if dossier_request.ticker == "GOOG":
+            raise ValueError("the record cannot be read")
+        return real_build(dossier_request, *args)
+
+    monkeypatch.setattr(gate, "build_dossier", build)
+    with pytest.raises(GateRunError, match="GOOG's dossier could not be built"):
+        run_gate(request, store, archive, tmp_path / "gate")
+    folder = tmp_path / "gate" / f"gate-1a-{AS_OF.isoformat()}"
+    assert not folder.exists()
+    staging = folder.with_name(folder.name + ".partial")
+    assert (staging / f"GOOGL-{AS_OF.isoformat()}.md").exists()
+    (staging / "stale.md").write_text("from an earlier run\n", encoding="utf-8")
+
+    monkeypatch.setattr(gate, "build_dossier", real_build)
+    result = run_gate(request, store, archive, tmp_path / "gate")
+    assert not staging.exists()
+    assert not (result.folder / "stale.md").exists()
+    assert verify_gate_run(result.folder) == []
+
+
 # --- checking a frozen run ---
+
+
+@pytest.mark.unit
+def test_a_file_not_in_the_run_record_fails_verification(world: World, tmp_path: Path) -> None:
+    store, archive = world
+    result = run_gate(
+        gate_request(small_set(tmp_path, ["GOOGL"])), store, archive, tmp_path / "gate"
+    )
+    (result.folder / f"AIG-{AS_OF.isoformat()}.md").write_text("extra\n", encoding="utf-8")
+    assert verify_gate_run(result.folder) == [f"AIG-{AS_OF.isoformat()}.md is not in {RUN_RECORD}"]
+
+
+@pytest.mark.unit
+def test_an_edited_run_record_fails_verification(world: World, tmp_path: Path) -> None:
+    store, archive = world
+    result = run_gate(
+        gate_request(small_set(tmp_path, ["GOOGL"])), store, archive, tmp_path / "gate"
+    )
+    path = result.folder / RUN_RECORD
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["tickers"] = ["GOOGL", "AIG"]
+    record["dossiers"][0]["sections_filled"] += 1
+    path.write_text(json.dumps(record), encoding="utf-8")
+    assert verify_gate_run(result.folder) == [
+        f"the dossiers in {RUN_RECORD} are not its tickers, in order",
+        f"the dossier list in {RUN_RECORD} does not match its recorded hash",
+    ]
+
+
+@pytest.mark.unit
+def test_a_renamed_set_folder_fails_verification(world: World, tmp_path: Path) -> None:
+    store, archive = world
+    result = run_gate(
+        gate_request(small_set(tmp_path, ["GOOGL"])), store, archive, tmp_path / "gate"
+    )
+    moved = result.folder.rename(tmp_path / "gate" / "gate-1a-2026-01-01")
+    assert verify_gate_run(moved) == [
+        f"the folder name does not match the set and as-of date in {RUN_RECORD}"
+    ]
 
 
 @pytest.mark.unit
