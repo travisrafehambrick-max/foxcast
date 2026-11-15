@@ -326,7 +326,7 @@ def test_markdown_and_json_carry_all_sections_and_the_certification(world: World
     assert "Certified by foxcast" in markdown
     assert "Claude Opus 5\\.5 \\(self\\-reported\\)" in markdown or "self" in markdown
     data = json.loads(render_json(dossier))
-    assert data["schema"] == "foxcast.dossier/1"
+    assert data["schema"] == "foxcast.dossier/2"
     assert [s["number"] for s in data["sections"]] == list(range(1, 20))
     assert all(s["status"] == "filled" or s["reason"] for s in data["sections"])
     assert data["certification"]["model_self_reported"] is True

@@ -12,6 +12,7 @@ code-filled values (:mod:`foxcast.claims.render`), shown only after the citation
 has verified them.
 """
 
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
@@ -221,6 +222,84 @@ class Certification:
     code_version: str
 
 
+# --- the research-claims section (Stage 1B skeleton) ---
+
+NO_RESEARCH: Final = (
+    "no research step ran for this dossier, so it holds no research claims; they stay "
+    "unavailable until a research backend runs one (Stage 1B)"
+)
+
+
+class ResearchStatus(StrEnum):
+    RAN = "ran"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True)
+class TargetClaims:
+    """One claim target: the IDs of its claims shown, and how many were withheld."""
+
+    target: str
+    shown: tuple[str, ...] = ()
+    withheld: int = 0
+
+    def __post_init__(self) -> None:
+        if self.target not in CLAIM_TARGETS:
+            raise ValueError(f"{self.target!r} is not a claim target")
+        if self.withheld < 0:
+            raise ValueError("a withheld count cannot be negative")
+
+    @property
+    def section_number(self) -> int:
+        return SPEC_BY_KEY[CLAIM_TARGETS[self.target]].number
+
+
+@dataclass(frozen=True)
+class ResearchClaims:
+    """What the research step submitted, accounted for claim by claim, or why there is none.
+
+    Not one of the 19 sections of brief 2.1: it is the index of the claims placed in them.
+    Unavailable (with a reason) unless a research step ran; a run lists every claim target
+    in order, so a target with nothing shown is visible rather than missing.
+    ``withheld_elsewhere`` counts claims that named a section taking no claims.
+    """
+
+    status: ResearchStatus
+    reason: str | None = None
+    model: str | None = None  # self-reported by the agent (change BH)
+    targets: tuple[TargetClaims, ...] = ()
+    withheld_elsewhere: int = 0
+
+    def __post_init__(self) -> None:
+        if self.withheld_elsewhere < 0:
+            raise ValueError("a withheld count cannot be negative")
+        if self.status is ResearchStatus.UNAVAILABLE:
+            if self.model is not None or self.targets or self.withheld_elsewhere:
+                raise ValueError("research claims that are unavailable carry no model or claims")
+            if self.reason is None:
+                raise SilentGapError("research claims are unavailable with no reason")
+            _check_reason(self.reason)
+            return
+        if self.reason is not None:
+            raise ValueError("a research run takes no reason; its claims are listed")
+        if not (self.model or "").strip():
+            raise ValueError("a research run needs the model that wrote its claims")
+        if tuple(t.target for t in self.targets) != tuple(CLAIM_TARGETS):
+            raise ValueError("a research run lists every claim target once, in order")
+
+    @property
+    def shown_count(self) -> int:
+        return sum(len(t.shown) for t in self.targets)
+
+    @property
+    def withheld_count(self) -> int:
+        return sum(t.withheld for t in self.targets) + self.withheld_elsewhere
+
+
+def no_research(reason: str = NO_RESEARCH) -> ResearchClaims:
+    return ResearchClaims(ResearchStatus.UNAVAILABLE, reason=reason)
+
+
 @dataclass(frozen=True)
 class Dossier:
     ticker: str
@@ -232,14 +311,49 @@ class Dossier:
     sections: tuple[Section, ...]
     withheld: tuple[WithheldEntry, ...] = ()
     verified_claim_ids: frozenset[str] = field(default_factory=frozenset)
+    research: ResearchClaims = field(default_factory=no_research)
 
     def __post_init__(self) -> None:
         problems = silent_gaps(self.sections)
         if problems:
             raise SilentGapError("; ".join(problems))
+        mismatch = research_mismatch(self)
+        if mismatch:
+            raise ValueError(f"the research claims disagree with the dossier: {mismatch}")
 
     def section(self, key: str) -> Section:
         return next(s for s in self.sections if s.key == key)
+
+
+def research_mismatch(dossier: Dossier) -> str | None:
+    """How the research section misstates the claims the dossier shows or withholds.
+
+    Checked against the claims in the sections, not ``verified_claim_ids``, so the row 1a
+    check at render time stays the one guard on verification.
+    """
+    research = dossier.research
+    shown = [c for s in dossier.sections for c in s.claims]
+    if research.status is ResearchStatus.UNAVAILABLE:
+        if shown or dossier.withheld:
+            return "claims are shown or withheld, but the research step is marked unavailable"
+        return None
+    if research.model != dossier.certification.model:
+        return "the model differs from the certification's"
+    # Per target, not per section: bull and bear claims share section 13.
+    placed = {
+        target: tuple(dict.fromkeys(c.claim_id for c in shown if c.section == target))
+        for target in CLAIM_TARGETS
+    }
+    if any(t.shown != placed[t.target] for t in research.targets):
+        return "the claim IDs listed are not the claims shown under each target"
+    listed = Counter(w.section for w in dossier.withheld)
+    counted = {t.target: t.withheld for t in research.targets}
+    elsewhere = sum(n for section, n in listed.items() if section not in CLAIM_TARGETS)
+    if any(counted[t] != listed[t] for t in CLAIM_TARGETS) or (
+        research.withheld_elsewhere != elsewhere
+    ):
+        return "the withheld counts are not the claims listed in section 18"
+    return None
 
 
 def silent_gaps(sections: tuple[Section, ...]) -> list[str]:
