@@ -11,23 +11,23 @@
 
 ## What it does
 
-Every fact traced. Every forecast frozen. Every result measured.
+foxcast builds research dossiers for US stocks and forecasts short-horizon returns — then publishes how good those forecasts actually are.
 
-- **Sourced dossiers** — point-in-time research dossiers for US stocks; every claim traces to a fact ID and the document it came from
+- **Sourced dossiers** — every claim in a dossier traces to a fact ID and the document it came from
 - **Frozen forecasts** — 101-quantile distributions of 5- and 21-day returns, sealed in a tamper-evident ledger before the outcome is known
-- **Public scoring** — settled forecasts measured against naive, volatility and option-implied baselines; the results live in [`SCORECARD.md`](SCORECARD.md)
+- **Public scoring** — settled forecasts are measured against naive, volatility and option-implied baselines; the results live in [`SCORECARD.md`](SCORECARD.md)
 
-The work is staged so trust is earned in order: **Stage 1** — a dossier where every claim traces to a source. **Stage 2** — forecasts whose error bars prove honest when measured. **Stage 3** — a research layer whose picks are themselves scored.
+The stages build trust in order: **Stage 1** proves every claim can be traced to a source. **Stage 2** proves the error bars are honest. **Stage 3** tests whether a research layer's picks add skill.
 
 ## Status
 
-Early development. What works today:
+Early development. Working today:
 
-- The live record: on-demand snapshots of prices, option chains and analyst views, with numbers-only forecasts frozen in the ledger
-- Point-in-time dossiers (`foxcast dossier`) built from the local fact store, no model — the research-claims section arrives in Stage 1B
-- The scoring foundation: quantile-form CRPS, volatility-scaled skill, bootstrap intervals — and a gate runner that freezes 20-ticker dossier sets with content hashes
+- On-demand snapshots of prices, option chains and analyst views, with numbers-only forecasts frozen in the ledger
+- Point-in-time dossiers (`foxcast dossier`) built from the local fact store, no model — the research-claims section is on `main` but stays "unavailable" until a backend runs it
+- Quantile-form CRPS, volatility-scaled skill and bootstrap intervals — plus a gate runner that freezes 20-ticker dossier sets with content hashes
 
-No scorecard row has been measured yet, so no forecast here has a validated track record. The scorecard was committed before any code; every result will be reported as pass, fail or not yet measurable.
+No scorecard row has been measured yet, so no forecast has a validated track record. The scorecard was committed before any code, and every result is reported as pass, fail or not yet measurable.
 
 ## Quick start
 
@@ -44,7 +44,7 @@ uv run foxcast doctor      # checks Python, config, keys, disk space and sources
 Two environment variables:
 
 - `FOXCAST_SEC_CONTACT="Your Name you@example.com"` — required before any SEC data is pulled
-- `FOXCAST_FRED_API_KEY` — optional; macro data is skipped without it
+- `FOXCAST_FRED_API_KEY` — optional; without it, macro data is skipped
 
 ```bash
 uv run foxcast watchlist --universe constituents.csv --seed 1 --sector "Energy"
@@ -55,20 +55,22 @@ uv run foxcast dossier MSFT --as-of 2025-01-15   # build the sourced dossier
 uv run foxcast verify-ledger --ledger ~/.foxcast/data/ledger.jsonl
 ```
 
-`constituents.csv` is a list of S&P 500 members with `Symbol`, `GICS Sector` and `GICS Sub-Industry` columns — for example the constituents table in Wikipedia's List of S&P 500 companies, exported as CSV. The draw fixes the pool before anyone sees which tickers come out, and records the universe definition and seed so it can be reproduced. You supply the file; none is shipped.
+`constituents.csv` is a list of S&P 500 members with `Symbol`, `GICS Sector` and `GICS Sub-Industry` columns — the Wikipedia constituents table exported as CSV works. The draw fixes the pool before anyone sees which tickers come out, and records the universe and seed so it can be reproduced. You supply the file; foxcast does not ship one.
 
-Everything foxcast writes lives under `~/.foxcast/` — config, snapshots, the ledger, per-ticker fact stores, and dossiers.
+Everything foxcast writes lives under `~/.foxcast/`: config, snapshots, the ledger, per-ticker fact stores and dossiers.
 
 ## Data
 
-foxcast ships code, never data. Each user fetches their own data under each source's own terms. All sources are free: Yahoo Finance (prices, option chains, analyst views), SEC EDGAR (filings — with your contact string), FRED (macro, optional free key).
+foxcast ships code, never data. You fetch your own data under each source's terms. All sources are free: Yahoo Finance (prices, option chains, analyst views), SEC EDGAR (filings — needs your contact string), FRED (macro, optional free key).
 
 ## Documentation
 
 | File | What it is |
 |------|------------|
 | [`SCORECARD.md`](SCORECARD.md) | The contract: what the project must prove and how it is measured |
+| [`GLOSSARY.md`](GLOSSARY.md) | The project's vocabulary, settled |
 | [`docs/MODELS.md`](docs/MODELS.md) | The forecast inventory and each model's status |
+| [`docs/adr/`](docs/adr/) | Decisions worth remembering, and why |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Dev setup and test commands |
 | [`AGENTS.md`](AGENTS.md) | How work is split across coding agents |
 
