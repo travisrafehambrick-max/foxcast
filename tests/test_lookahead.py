@@ -1,68 +1,60 @@
 """Scorecard row 2d, "No peeking": no input dated after the forecast time, plus one test
 for each fitted piece listed in honesty rule 12 (change AT).
 
-The main check is the poisoned-future test. Corrupt every row dated on or after the
-forecast day, rerun, and require a forecast identical value for value. Any lookahead
-in the inputs, the fit or the simulation then changes the answer.
+The main check is the poisoned-future test. It corrupts every row dated on or after the
+forecast day, reruns, and requires forecasts identical value for value. It runs the path
+the harness uses end to end: the past-only view, the ``ForecastInputs`` built from it, and
+the shipped ``FORECASTS`` adapters with their fits and simulations. The forecasts receive
+nothing else, so a leak anywhere on that path changes the answer.
 """
 
 import re
 from collections.abc import Callable
-from datetime import date, timedelta
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Final
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from foxcast.daily import completed_session_returns
-from foxcast.sim.naive import forecast_naive
-from foxcast.sim.plain_vol import forecast_plain_vol
-from foxcast.walkforward.harness import Forecaster, forecasts_on, run_walk_forward
-from foxcast.walkforward.past_only import PastOnly
+from foxcast.snapshot import DaySnapshot, completed_session_returns
+from foxcast.walkforward.harness import BuiltForecasts, forecasts_on, run_walk_forward
+from foxcast.walkforward.past_only import LookaheadError, PastOnly
 from foxcast.walkforward.pieces import FITTED_PIECES, FittedPiece
 from foxcast.walkforward.schedule import forecast_dates
-from foxcast.walkforward.settle import settled_before
 
-from .walkforward_data import poison_from, synthetic_prices
+from .walkforward_data import HISTORY_SPECS, poison_from, synthetic_prices
 
 ROOT: Final = Path(__file__).resolve().parents[1]
-PATHS: Final = 2000
 HORIZON: Final = 21
 PRICES: Final = synthetic_prices(sessions=900, seed=7)
 POISONS: Final = ("scale", "nan", "shuffle")
 DAYS: Final = (PRICES["date"].iloc[600], PRICES["date"].iloc[777])
 
 
-def assert_blind_to_the_future(forecast_id: str, build: Forecaster) -> None:
+def built(prices: pd.DataFrame, day: date, forecast_id: str) -> BuiltForecasts:
+    specs = tuple(s for s in HISTORY_SPECS if s.forecast_id == forecast_id)
+    return forecasts_on(PastOnly(prices, day), ticker="AAA", specs=specs, horizon=HORIZON)
+
+
+def assert_blind_to_the_future(forecast_id: str) -> None:
     for day in DAYS:
-        clean = forecasts_on(
-            PastOnly(PRICES, day),
-            ticker="AAA",
-            forecasters={forecast_id: build},
-            horizon=HORIZON,
-            paths=PATHS,
-        )
-        assert not isinstance(clean[forecast_id], str), clean[forecast_id]
+        clean = built(PRICES, day, forecast_id)
+        result = clean.results[f"{forecast_id}:{HORIZON}"]
+        assert not isinstance(result, str), result
         for how in POISONS:
-            poisoned = forecasts_on(
-                PastOnly(poison_from(PRICES, day, how), day),
-                ticker="AAA",
-                forecasters={forecast_id: build},
-                horizon=HORIZON,
-                paths=PATHS,
-            )
+            poisoned = built(poison_from(PRICES, day, how), day, forecast_id)
             assert poisoned == clean, f"{forecast_id} on {day} saw the future ({how})"
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    ("forecast_id", "build"), [("naive", forecast_naive), ("plain_vol", forecast_plain_vol)]
-)
-def test_built_forecasts_ignore_everything_dated_on_or_after_the_forecast_day(
-    forecast_id: str, build: Forecaster
+@pytest.mark.parametrize("forecast_id", ["naive", "plain_vol"])
+def test_shipped_forecasts_ignore_everything_dated_on_or_after_the_forecast_day(
+    forecast_id: str,
 ) -> None:
-    assert_blind_to_the_future(forecast_id, build)
+    assert_blind_to_the_future(forecast_id)
 
 
 @pytest.mark.unit
@@ -71,76 +63,74 @@ def test_no_walk_forward_input_is_dated_on_or_after_its_forecast_day() -> None:
         prices={"AAA": PRICES},
         members_as_of=lambda _: ("AAA",),
         dates=forecast_dates(date(2017, 6, 1), date(2018, 6, 1)),
-        forecasters={"naive": forecast_naive},
+        specs=HISTORY_SPECS[:1],
         horizon=HORIZON,
-        paths=PATHS,
     )
     assert len(result.rows) > 5
+    assert not result.skipped
     for row in result.rows:
         assert row.latest_input < row.day
 
 
+@dataclass(frozen=True, eq=False)
+class _LeakyView(PastOnly):
+    """A view that has regressed and hands over the whole table."""
+
+    def rows(self) -> pd.DataFrame:
+        return self.table.sort_values(self.date_column).reset_index(drop=True)
+
+
 @pytest.mark.unit
-def test_later_dividend_adjustments_leave_earlier_returns_unchanged() -> None:
-    # Yahoo back-adjusts every earlier close when a dividend goes ex. Inputs are log
-    # returns, so a later adjustment must not move any return before it.
-    closes = PRICES["close"].to_numpy()
-    ex_day = 700
+def test_a_view_that_leaks_stops_the_run_instead_of_forecasting() -> None:
+    with pytest.raises(LookaheadError, match="forecast time"):
+        forecasts_on(
+            _LeakyView(PRICES, DAYS[0]), ticker="AAA", specs=HISTORY_SPECS, horizon=HORIZON
+        )
+
+
+def _back_adjust(closes: np.ndarray, dividends: list[tuple[int, float]]) -> np.ndarray:
+    """Yahoo-style adjusted closes: each dividend scales every earlier close."""
     factor = np.ones_like(closes)
-    factor[:ex_day] = 1.0 - 2.0 / closes[ex_day - 1]
-    adjusted_later = PRICES.assign(adj_close=closes * factor)
-    day = PRICES["date"].iloc[ex_day - 50]
-    np.testing.assert_allclose(
-        completed_session_returns(adjusted_later, day),
-        completed_session_returns(PRICES, day),
-        rtol=0,
-        atol=1e-12,
+    for ex_index, amount in dividends:
+        factor[:ex_index] *= 1.0 - amount / closes[ex_index - 1]
+    return closes * factor
+
+
+@pytest.mark.unit
+def test_dividends_after_the_forecast_day_do_not_change_its_inputs() -> None:
+    # The adjusted series fetched today carries every later dividend. A forecast on day t
+    # must see the same returns as the series known on t, which is adjusted only for
+    # dividends before t, including the return across that earlier ex-date.
+    closes = PRICES["close"].to_numpy()
+    earlier, later, t = (300, 1.5), (700, 2.0), 650
+    day = PRICES["date"].iloc[t]
+    known_then = completed_session_returns(
+        PRICES.assign(adj_close=_back_adjust(closes, [earlier])), day
     )
+    known_today = completed_session_returns(
+        PRICES.assign(adj_close=_back_adjust(closes, [earlier, later])), day
+    )
+    np.testing.assert_allclose(known_today, known_then, rtol=0, atol=1e-12)
+    raw = completed_session_returns(PRICES, day)
+    assert known_then[earlier[0] - 1] != pytest.approx(raw[earlier[0] - 1])  # dividend counted
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("how", POISONS)
-def test_the_live_daily_path_ignores_rows_on_or_after_the_day(how: str) -> None:
+def test_the_live_snapshot_returns_ignore_rows_on_or_after_the_day(how: str) -> None:
     day = DAYS[0]
-    np.testing.assert_array_equal(
-        completed_session_returns(poison_from(PRICES, day, how), day),
-        completed_session_returns(PRICES, day),
-    )
+
+    def returns(prices: pd.DataFrame) -> np.ndarray:
+        return DaySnapshot(day=day, ticker="AAA", prices=prices, chains=None).log_returns
+
+    np.testing.assert_array_equal(returns(poison_from(PRICES, day, how)), returns(PRICES))
 
 
 # ---- One test per fitted piece in honesty rule 12 -------------------------------------
 
-
-def _check_naive_volatility() -> None:
-    assert_blind_to_the_future("naive", forecast_naive)
-
-
-def _check_volatility_model() -> None:
-    assert_blind_to_the_future("plain_vol", forecast_plain_vol)
-
-
-def _check_conformal_record() -> None:
-    # The record at forecast day t holds only outcomes settled before t, so it lags one
-    # horizon; outcomes that settle on or after t never enter it.
-    result = run_walk_forward(
-        prices={"AAA": PRICES},
-        members_as_of=lambda _: ("AAA",),
-        dates=forecast_dates(date(2017, 6, 1), date(2018, 6, 1)),
-        forecasters={"naive": forecast_naive},
-        horizon=HORIZON,
-        paths=PATHS,
-    )
-    for row in result.rows:
-        record = settled_before(result.rows, row.day)
-        assert row not in record
-        assert all(r.horizon_day < row.day for r in record)
-        assert all(r.day <= row.day - timedelta(days=HORIZON) for r in record)
-
-
 PIECE_CHECKS: Final[dict[str, Callable[[], None]]] = {
-    "naive_volatility": _check_naive_volatility,
-    "volatility_model": _check_volatility_model,
-    "conformal_record": _check_conformal_record,
+    "naive_volatility": lambda: assert_blind_to_the_future("naive"),
+    "volatility_model": lambda: assert_blind_to_the_future("plain_vol"),
 }
 
 

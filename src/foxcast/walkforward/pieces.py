@@ -64,8 +64,8 @@ FITTED_PIECES: Final[tuple[FittedPiece, ...]] = (
     FittedPiece(
         "conformal_record",
         "the conformal record",
-        built=True,
-        note="the settled-outcome record (settle.settled_before); the recalibration "
-        "fitter itself (change W) is not built",
+        built=False,
+        note="not built: no recalibration fitter (change W) consumes the record yet; "
+        "its past-only input, settle.settled_before, is unit-tested",
     ),
 )

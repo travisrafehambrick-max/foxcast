@@ -52,7 +52,7 @@ def test_tuning_outcomes_all_settle_before_the_final_test_period() -> None:
 
 @pytest.mark.unit
 def test_final_test_dates_lie_inside_the_final_period_only() -> None:
-    days = final_test_dates()
+    days = final_test_dates(today=date(2027, 1, 4))
     assert days[0] >= FINAL_START
     assert horizon_date(days[-1], WINDOW_SESSIONS) <= FINAL_END
     assert not set(days) & set(tuning_dates())
@@ -73,3 +73,10 @@ def test_an_empty_or_backwards_range_is_rejected() -> None:
 def test_window_must_be_positive() -> None:
     with pytest.raises(ValueError, match="window"):
         forecast_dates(date(2019, 1, 1), date(2019, 12, 31), window=0)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("today", [date(2026, 11, 14), FINAL_END])
+def test_the_final_test_is_refused_until_its_period_is_over(today: date) -> None:
+    with pytest.raises(ValueError, match="final test period ends"):
+        final_test_dates(today=today)

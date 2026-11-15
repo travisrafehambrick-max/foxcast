@@ -40,6 +40,12 @@ def tuning_dates() -> tuple[date, ...]:
     return forecast_dates(TUNING_START, TUNING_END)
 
 
-def final_test_dates() -> tuple[date, ...]:
-    """Forecast dates for the one recorded final test, 2023-2026 (change AS)."""
+def final_test_dates(*, today: date) -> tuple[date, ...]:
+    """Forecast dates for the one recorded final test, 2023-2026 (change AS).
+
+    Refused until the period is over, so no outcome is still unsettled and nothing is
+    scored before the whole test exists.
+    """
+    if today <= FINAL_END:
+        raise ValueError(f"the final test period ends {FINAL_END}; it cannot run on {today}")
     return forecast_dates(FINAL_START, FINAL_END)
