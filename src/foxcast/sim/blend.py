@@ -19,6 +19,11 @@ NOT_BUILT: Final = (
 
 
 def _passthrough(ingredient: QuantileForecast, *, horizon: int, reason: str) -> QuantileForecast:
+    if ingredient.horizon_days != horizon:
+        raise ValueError(
+            f"ingredient horizon {ingredient.horizon_days} days does not match "
+            f"the {horizon}-day headline"
+        )
     return replace(
         ingredient,
         forecast_id="blend",
