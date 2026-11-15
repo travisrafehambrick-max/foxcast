@@ -48,21 +48,27 @@ def price_history(days: int = 800, seed: int = 3) -> pd.DataFrame:
     )
 
 
+MIN_QUOTE = 0.05
+
+
 def chain_frame(spot: float, sigma: float, days: int) -> pd.DataFrame:
     t = days / 365.0
-    strikes = np.arange(spot * 0.6, spot * 1.4, spot * 0.02)
+    strikes = np.arange(spot * 0.7, spot * 1.3 + 1e-9, spot * 0.02)
     d1 = (np.log(spot / strikes) + 0.5 * sigma**2 * t) / (sigma * math.sqrt(t))
     d2 = d1 - sigma * math.sqrt(t)
-    calls = np.maximum(spot * norm.cdf(d1) - strikes * norm.cdf(d2), 0.01)
-    puts = np.maximum(strikes * norm.cdf(-d2) - spot * norm.cdf(-d1), 0.01)
+    calls = spot * norm.cdf(d1) - strikes * norm.cdf(d2)
+    puts = strikes * norm.cdf(-d2) - spot * norm.cdf(-d1)
 
     def frame(prices: np.ndarray) -> pd.DataFrame:
+        keep = prices >= MIN_QUOTE  # real chains do not quote options this cheap
+        kept_strikes = strikes[keep]
+        kept_prices = prices[keep]
         return pd.DataFrame(
             {
-                "strike": strikes,
-                "lastPrice": prices,
-                "bid": prices * 0.99,
-                "ask": prices * 1.01,
+                "strike": kept_strikes,
+                "lastPrice": kept_prices,
+                "bid": kept_prices * 0.99,
+                "ask": kept_prices * 1.01,
                 "volume": 100.0,
                 "openInterest": 500.0,
                 "impliedVolatility": sigma,
