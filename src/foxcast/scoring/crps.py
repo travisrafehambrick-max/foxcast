@@ -155,6 +155,7 @@ class SkillSummary:
     n_dates: int
     mean_model_crps: float
     mean_baseline_crps: float
+    tail_skill: float | None = None  # filled by a later variant; None here
 
 
 def _pooled_skill(scores: Sequence[ScoredForecast]) -> float:
