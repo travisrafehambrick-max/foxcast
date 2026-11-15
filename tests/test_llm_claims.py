@@ -93,6 +93,9 @@ def test_reference_backend_runs_to_a_rendered_dossier_with_audit_trail(
     assert result.calls[-1].result["ok"] is True
     assert "meter" in result.calls[-1].result
     assert result.calls[-1].result["meter"]["tool_calls"] >= 1
+    mid = next(c for c in result.calls if c.tool == "sec_get_facts")
+    assert {"foxcast_tool", "tool", "ok", "meter", "data", "error"} <= set(mid.result)
+    assert mid.arguments["run_id"] == RUN_ID
 
 
 @pytest.mark.integration

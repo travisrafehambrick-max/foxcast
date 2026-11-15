@@ -9,11 +9,17 @@ foxcast's own tools and recorded facts, with no external model and no hardcoded 
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Literal, Protocol
 
 from foxcast.llm.tools import ToolCaller
 
 Holding = Literal["holds", "none", "not-declared"]
+
+
+def _freeze(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
+    """A read-only view so a frozen audit record cannot be rewritten in place."""
+    return MappingProxyType(dict(mapping))
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,10 @@ class LoggedCall:
     arguments: Mapping[str, Any]
     result: Mapping[str, Any]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "arguments", _freeze(self.arguments))
+        object.__setattr__(self, "result", _freeze(self.result))
+
 
 @dataclass(frozen=True)
 class ClaimsRunResult:
@@ -48,6 +58,9 @@ class ClaimsRunResult:
     claims_withheld: int
     cost: Mapping[str, int | float]
     calls: tuple[LoggedCall, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "cost", _freeze(self.cost))
 
 
 class ClaimsBackend(Protocol):
@@ -127,10 +140,14 @@ class ReferenceClaimsBackend:
         earlier, latest = annual[-2]["id"], annual[-1]["id"]
 
         _require_ok(invoke("sec_get_text_facts", {"run_id": run_id, "limit": 5}))
-        ten_k = next(f for f in filings["items"] if f["form"] == "10-K")
+        ten_k = next((f for f in filings["items"] if f["form"] == "10-K"), None)
+        if ten_k is None:
+            raise RuntimeError("reference backend needs an archived 10-K in the record")
         passages = _require_ok(
             invoke("sec_read_passages", {"run_id": run_id, "accession": ten_k["accession"]})
         )
+        if not passages["items"]:
+            raise RuntimeError("reference backend needs at least one passage from the 10-K")
         _require_ok(
             invoke("sec_search_passages", {"run_id": run_id, "query": "exchange commission"})
         )
