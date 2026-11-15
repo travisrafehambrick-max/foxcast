@@ -51,13 +51,17 @@ Shared lock files (`pyproject.toml`, `uv.lock`, `SCORECARD.md`, `scorecard.toml`
 - Check out the same branch in two worktrees.
 - Leave merged topic remotes hanging; delete them after merge.
 
-## Status (as of 2026-11-15)
+## Status (as of 2026-11-14)
 
-**Stage 1A complete.** 1A.1–1A.7 on `main`: claims/checker/numbers-rule hardening (PR #1), fiscal-period labels + archive guard (PR #2), dossier builder (PR #3), `dossier` CLI wiring (PR #4), `check-claims` CLI (PR #7), locked-down MCP tool server + cost meter + call-log replay (PR #8), operator guide (PR #9). `foxcast ingest` uses `settings.archive_dir` via `SourceArchive.outside_git` (not under the data repo).
+**Stage 1A complete.** 1A.1–1A.7 on `main`: claims/checker/numbers-rule hardening (PR #1), fiscal-period labels + archive guard (PR #2), dossier builder (PR #3), `dossier` CLI wiring (PR #4), `check-claims` CLI (PR #7), locked-down MCP tool server + cost meter + call-log replay (PR #8), operator guide (PR #9), gate dossier runner freezing the 20-ticker set with content hashes (PR #14). `foxcast ingest` uses `settings.archive_dir` via `SourceArchive.outside_git` (not under the data repo).
 
-**Stage 2 started.** Quantile grid + forecasts 1 (naive), 2 (plain vol), 4 (option raw) built at Stage 0.5; contract tests + honest stubs for forecasts 3, 5, 6 and B on `main` (PR #11). Still "not built": `event_aware` (needs an event calendar), `option_corrected` (needs a bias-correction fitter + chain history), blend combination method (awaits proving experiment 5), CRPS scoring, walk-forward harness, lookahead tests (row 2d).
+**Stage 1B started.** LLM backend interface for research claims + hardened audit trail (PR #18); research-claims dossier section on `main`, reported unavailable until a backend runs it (PR #20).
 
-- **Next:** Stage 2 scoring + harness groundwork; 10-K section splitting unblocks with `edgartools` on **2026-11-16**.
+**Stage 2 started.** Quantile grid + forecasts 1 (naive), 2 (plain vol), 4 (option raw) built at Stage 0.5; contract tests + honest stubs for forecasts 3, 5, 6 and B on `main` (PR #11). Scoring landed: quantile-form CRPS, tail-weighted score, volatility-scaled skill, block-bootstrap CI (PR #13). Still "not built": `event_aware` (needs an event calendar), `option_corrected` (needs a bias-correction fitter + chain history), blend combination method (awaits proving experiment 5), walk-forward harness, lookahead tests (row 2d).
+
+Repo docs for agents: `docs/agents/` skills config (PR #19); `GLOSSARY.md` + `docs/adr/` (PR #21) — use glossary vocabulary in output.
+
+- **Next:** walk-forward harness + lookahead tests (row 2d); a backend wired for live research claims; 10-K section splitting unblocks with `edgartools` on **2026-11-16**.
 
 ## Honesty reminders
 
