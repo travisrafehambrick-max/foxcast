@@ -32,6 +32,7 @@ from foxcast.claims.render import (
     review_claim,
 )
 from foxcast.dossier import content
+from foxcast.dossier.research import research_claims
 from foxcast.dossier.schema import (
     CLAIM_TARGETS,
     Cell,
@@ -491,4 +492,5 @@ def build_dossier(
         sections=sections,
         withheld=withheld,
         verified_claim_ids=frozenset(c.claim_id for c in (check.shown if check else ())),
+        research=research_claims(model.name if model else None, check, withheld),
     )

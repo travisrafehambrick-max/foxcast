@@ -17,11 +17,22 @@ from typing import Any, Final
 
 from foxcast.claims.checker import row_1a_failures
 from foxcast.claims.render import NEEDS_PROBABILITY, RenderedClaim
-from foxcast.dossier.schema import Cell, Dossier, Section, Status, Table
+from foxcast.dossier.schema import (
+    CLAIM_TARGETS,
+    SPEC_BY_KEY,
+    Cell,
+    Dossier,
+    ResearchClaims,
+    ResearchStatus,
+    Section,
+    Status,
+    Table,
+)
 from foxcast.facts.record import is_hidden_character
 from foxcast.notice import NOTICE_HEADLINE
 
-SCHEMA_VERSION: Final = "foxcast.dossier/1"
+# /2 adds "research_claims" (the Stage 1B research-claims section).
+SCHEMA_VERSION: Final = "foxcast.dossier/2"
 # Backslash-escapable ASCII punctuation that can start markup inline. ":" and "." stop
 # bare-URL and www autolinks, "." also an ordered-list marker such as "1." after a bullet,
 # and "@" email autolinks (best effort: GFM finds those after parsing).
@@ -144,6 +155,44 @@ def certification_line(dossier: Dossier) -> str:
     )
 
 
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+
+
+def research_block(research: ResearchClaims) -> list[str]:
+    """The research-claims section: an index of the claims, never the model's words."""
+    if research.status is ResearchStatus.UNAVAILABLE:
+        return [f"**Research claims.** Unavailable: {escape(research.reason or '')}", ""]
+    written = f"Written by the research step: model {research.model} (self-reported)"
+    if not (research.shown_count or research.withheld_count):
+        nothing = f"{written}; the research step submitted no claims."
+        return [f"**Research claims.** {escape(nothing)}", ""]
+    summary = (
+        f"{written}; {_plural(research.shown_count, 'claim')} shown in its section below, "
+        f"{research.withheld_count} withheld and listed in section 18."
+    )
+    out = [
+        f"**Research claims.** {escape(summary)}",
+        "",
+        "| Claim section | Dossier section | Shown | Withheld | Claim IDs shown |",
+        "|---|---|---|---|---|",
+    ]
+    for t in research.targets:
+        title = SPEC_BY_KEY[CLAIM_TARGETS[t.target]].title
+        ids = _ids(t.shown) or "none"
+        out.append(
+            f"| {escape(t.target)} | {escape(f'{t.section_number}. {title}')} "
+            f"| {len(t.shown)} | {t.withheld} | {ids} |"
+        )
+    out.append("")
+    if research.withheld_elsewhere:
+        claims = _plural(research.withheld_elsewhere, "claim")
+        verb = "was" if research.withheld_elsewhere == 1 else "were"
+        line = f"{claims} named a section that takes no claims and {verb} withheld; see section 18."
+        out += [escape(line), ""]
+    return out
+
+
 def render_markdown(dossier: Dossier) -> str:
     require_row_1a(dossier)
     out = [
@@ -153,6 +202,7 @@ def render_markdown(dossier: Dossier) -> str:
         "",
         f"**Certification.** {escape(certification_line(dossier))}",
         "",
+        *research_block(dossier.research),
     ]
     for section in dossier.sections:
         out += _section(section)
@@ -203,6 +253,25 @@ def _section_json(section: Section) -> dict[str, Any]:
     }
 
 
+def research_json(research: ResearchClaims) -> dict[str, Any]:
+    return {
+        "status": str(research.status),
+        "reason": research.reason,
+        "model": research.model,
+        "model_self_reported": research.model is not None,
+        "targets": [
+            {
+                "target": t.target,
+                "section": t.section_number,
+                "shown": list(t.shown),
+                "withheld": t.withheld,
+            }
+            for t in research.targets
+        ],
+        "withheld_elsewhere": research.withheld_elsewhere,
+    }
+
+
 def to_json_data(dossier: Dossier) -> dict[str, Any]:
     require_row_1a(dossier)
     c = dossier.certification
@@ -226,6 +295,7 @@ def to_json_data(dossier: Dossier) -> dict[str, Any]:
             "words_check_version": c.words_check_version,
             "code_version": c.code_version,
         },
+        "research_claims": research_json(dossier.research),
         "sections": [_section_json(s) for s in dossier.sections],
         "withheld": [
             {
