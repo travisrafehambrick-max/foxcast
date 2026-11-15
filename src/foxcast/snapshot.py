@@ -10,11 +10,12 @@ import json
 import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Final, Protocol
 
 import exchange_calendars as xcals
+import numpy as np
 import pandas as pd
 
 from foxcast.sources.base import Unavailable
@@ -69,6 +70,53 @@ def _utc_now() -> datetime:
 
 def snapshot_dir(data_dir: Path, day: str) -> Path:
     return data_dir / "snapshots" / day
+
+
+def completed_session_returns(prices: pd.DataFrame, day: date) -> np.ndarray:
+    """Daily log returns from adjusted closes of sessions before ``day`` (no intraday row)."""
+    ordered = prices.sort_values("date")
+    completed = ordered[ordered["date"] < day]
+    return np.diff(np.log(completed["adj_close"].to_numpy(dtype=float)))
+
+
+@dataclass(frozen=True, eq=False)
+class DaySnapshot:
+    """One ticker's capture for one day: the prices table plus whatever else was fetched.
+
+    The snapshot runs while the market is open, so the last price row is intraday.
+    ``spot`` deliberately includes it (the option chain's quotes are consistent with it);
+    ``log_returns`` deliberately drops it, so history forecasts are trained on completed
+    sessions only.
+    """
+
+    day: date
+    ticker: str
+    prices: pd.DataFrame
+    chains: pd.DataFrame | None
+
+    @property
+    def spot(self) -> float:
+        return float(self.prices.sort_values("date")["close"].iloc[-1])
+
+    @property
+    def log_returns(self) -> np.ndarray:
+        return completed_session_returns(self.prices, self.day)
+
+
+def load_day(data_dir: Path, day: str, ticker: str) -> DaySnapshot | str:
+    """One ticker's snapshot tables, or the reason the day has none."""
+    validate_ticker(ticker)
+    folder = snapshot_dir(data_dir, day)
+    price_path = folder / f"{ticker}_prices.parquet"
+    if not price_path.exists():
+        return f"no price snapshot for {day}"
+    chain_path = folder / f"{ticker}_chains.parquet"
+    return DaySnapshot(
+        day=date.fromisoformat(day),
+        ticker=ticker,
+        prices=pd.read_parquet(price_path),
+        chains=pd.read_parquet(chain_path) if chain_path.exists() else None,
+    )
 
 
 def run_snapshot(
